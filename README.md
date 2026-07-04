@@ -88,4 +88,4 @@ MIT — use it, fork it, paste it into your agent prompts freely.
 
 ---
 
-*Started by [@marsley01](https://github.com/marsley01) — building in Nairobi 🇰🇪*
+*Started by [@marsley01](https://github.com/marsley01)*
