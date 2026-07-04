@@ -1,0 +1,95 @@
+---
+description: Enforces consistent naming across files, functions, variables, and components. Kills the getUserData vs fetchUser vs get_user_data chaos that happens across multiple agent sessions. Also catches names that lie about what they actually do.
+alwaysApply: false
+---
+
+# Naming Contract — One Convention. Zero Exceptions.
+
+## The convention — follow this exactly
+
+| Thing | Convention | Example |
+|---|---|---|
+| Functions | camelCase | `getUser`, `fetchPayments`, `createSession` |
+| Components | PascalCase | `UserCard`, `PaymentModal`, `AuthGuard` |
+| Files | kebab-case | `user-card.tsx`, `auth-utils.ts`, `api-helpers.ts` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT`, `DEFAULT_PAGE_SIZE` |
+| Types & Interfaces | PascalCase | `UserProfile`, `ApiResponse`, `BookingStatus` |
+| Database columns | snake_case | `created_at`, `user_id`, `is_active` |
+| CSS classes | kebab-case | `btn-primary`, `card-header`, `modal-overlay` |
+| Boolean variables | Prefix: `is` `has` `can` `should` | `isLoading`, `hasError`, `canEdit` |
+| Event handlers | Prefix: `handle` | `handleClick`, `handleSubmit`, `handleClose` |
+| Custom hooks | Prefix: `use` | `useAuth`, `usePayment`, `useDebounce` |
+
+---
+
+## Before naming anything — check the codebase first
+
+```
+NAMING CHECK
+────────────
+Name I want to use: [name]
+Does a similar name already exist in the project: YES / NO
+If YES — what is it: [name]
+Am I creating a duplicate with a slightly different name: YES / NO
+```
+
+If `getUserData` already exists — do NOT create `fetchUserData`, `getUser`, or `user_data` alongside it. Pick one. Rename the others. One function, one name, everywhere.
+
+---
+
+## Names that lie — the most dangerous naming bug
+
+A name that lies is a function whose name describes something different from what it actually does. This causes silent, hard-to-find bugs.
+
+Check every function name against what it actually does:
+
+```
+LYING NAME AUDIT
+────────────────
+Function name: [name]
+What the name implies it does: [one sentence]
+What it actually does: [one sentence]
+Do these match exactly: YES / NO
+```
+
+Common lying name patterns to catch:
+
+| Lying name | What it secretly does | Fix |
+|---|---|---|
+| `getUser()` | Creates user if not found | rename to `getOrCreateUser()` |
+| `isValid()` | Also saves to the database | split into `validate()` and `save()` |
+| `fetchData()` | Mutates state as a side effect | rename to `loadAndSetData()` |
+| `deleteUser()` | Actually soft-deletes | rename to `deactivateUser()` |
+| `updateProfile()` | Also sends an email | rename or split |
+
+If the name does not match what the function does — rename the function, not this rule.
+
+---
+
+## Hard rules
+
+- [ ] No two functions in the project do the same thing with different names — find and consolidate
+- [ ] No mixing of camelCase and snake_case in the same layer (e.g. all JS variables are camelCase even if DB columns are snake_case — map them at the boundary)
+- [ ] No single letter variable names outside of loop counters (`i`, `j`) and math (`x`, `y`)
+- [ ] No boolean named `status`, `flag`, `active`, `data`, `value` — these describe nothing
+- [ ] No function named `handle`, `process`, `manage`, `do`, `run` without a specific subject — `handleSubmit` yes, `handleStuff` no
+- [ ] No file named `utils.ts`, `helpers.ts`, `common.ts` — name it for what it actually contains (`date-formatters.ts`, `currency-utils.ts`)
+- [ ] No component named `Component`, `Widget`, `Item`, `Card` without a subject — `UserCard` yes, `Card` no
+
+---
+
+## Audit check — run on existing code
+
+Search the codebase for these patterns and flag every match:
+
+- [ ] Functions with identical prefixes doing different things (`getUser` + `getUserData` + `getUserById`)
+- [ ] Boolean variables not starting with `is`, `has`, `can`, `should`
+- [ ] Event handlers not starting with `handle`
+- [ ] Files named `utils`, `helpers`, `common`, `misc`, `stuff`
+- [ ] Any function whose name would pass the lying name audit above
+
+---
+
+## The rule in one line
+
+Name what it IS, not what it touches. Name what it DOES, not where it lives. If the name could describe two different functions — it is wrong.
