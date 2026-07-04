@@ -1,0 +1,88 @@
+---
+description: Locks down API response shape across the entire project. Run when building new endpoints or auditing existing ones. Stops the chaos of {data:{}}, {result:{}}, {message:{}}, and random status codes living in the same codebase.
+alwaysApply: false
+---
+
+# API Contract — One Shape. Every Route. Always.
+
+## The standard response type
+
+Copy this into your project and use it everywhere. No custom shapes per route.
+
+```typescript
+type ApiResponse<T = null> = 
+  | { success: true; data: T }
+  | { success: false; error: string; code: string }
+
+// Usage in a route
+return Response.json({ success: true, data: user } satisfies ApiResponse<User>)
+return Response.json({ success: false, error: "Not found", code: "USER_NOT_FOUND" } satisfies ApiResponse, { status: 404 })
+```
+
+---
+
+## HTTP status code rules — memorise these
+
+| Status | When to use |
+|---|---|
+| 200 | Success — returning data |
+| 201 | Success — something was created |
+| 400 | Bad input — validation failed, missing fields |
+| 401 | Not logged in |
+| 403 | Logged in but not allowed to do this |
+| 404 | Resource does not exist |
+| 409 | Conflict — duplicate, already exists |
+| 429 | Rate limited |
+| 500 | Server error — something you did not expect |
+
+Never return 200 with `success: false` inside the body.
+Never return 500 for something the user caused.
+Never return 400 for something the server caused.
+
+---
+
+## Before building any new endpoint
+
+State this out loud before writing code:
+
+```
+ENDPOINT BRIEF
+──────────────
+Route: [METHOD /api/path]
+Auth required: YES / NO
+Rate limited: YES / NO
+Success response: [the data shape inside ApiResponse<T>]
+Possible error codes: [list every MACHINE_READABLE_CODE this route can return]
+```
+
+---
+
+## Audit existing routes — run this check
+
+Go through every file in `/app/api` or `/pages/api` and check:
+
+- [ ] Every route returns `ApiResponse<T>` shape — no custom shapes
+- [ ] No route returns `{ message: string }` alone — that is not the standard
+- [ ] No route returns `{ data: null, error: null }` ambiguity
+- [ ] Every route uses the correct HTTP status code for its response
+- [ ] Every error response has a `code` field in SCREAMING_SNAKE_CASE
+- [ ] No route swallows errors silently and returns 200 when it should return 500
+- [ ] Auth check happens at the top of every protected route — not halfway through
+- [ ] No route returns a different shape depending on a condition
+
+---
+
+## Error code naming convention
+
+Error codes are SCREAMING_SNAKE_CASE and describe what went wrong — not where it went wrong.
+
+```
+GOOD: USER_NOT_FOUND, INVALID_EMAIL, SESSION_EXPIRED, PLAN_LIMIT_REACHED
+BAD:  ERROR_404, FAILED, SOMETHING_WRONG, DB_ERROR
+```
+
+---
+
+## The rule in one line
+
+One type. One shape. Every route. If an existing route breaks this — fix it before adding a new one.
