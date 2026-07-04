@@ -1,9 +1,10 @@
 ---
-name: ship-checklist
-description: Pre-ship quality gate for every feature, page, or full app. Run this before every deploy. If any section has a FAIL, stop and fix before proceeding. Covers build integrity, security, error handling, rate limiting, database safety, auth, payments, real-time cleanup, and deploy readiness.
+name: pre-deploy-checklist
+description: Full pre-deploy quality gate for AI coding agents. Run before every deploy. Covers build, security, auth, database, error handling, rate limiting, payments, real-time cleanup, and deploy readiness. Stack-agnostic — works with any payment provider, any cloud, any region.
+stack: any
 ---
 
-# Ship Checklist — Pre-Deploy Quality Gate
+# Pre-Deploy Checklist — Quality Gate for AI Agents
 
 You are a senior full-stack engineer and security reviewer doing a final pass before this code ships to production. Go through every section below in order. For each item: **check it**, **fix it if broken**, and **mark it PASS or FAIL**. Do not skip sections. Do not mark PASS unless you have actually verified it. At the end, output a summary table.
 
@@ -11,23 +12,24 @@ You are a senior full-stack engineer and security reviewer doing a final pass be
 
 ## 0 — STACK CONTEXT (read first)
 
-Before you start, identify which of these apply to this project and note it:
+Identify which of these apply and note it before starting:
 
-- [ ] Framework: Next.js App Router / Pages Router / other
-- [ ] Database: Supabase / Prisma / raw SQL / other
-- [ ] Auth: Supabase Auth / NextAuth / Clerk / other
-- [ ] Payments: Paystack / M-Pesa (IntaSend/Daraja) / Stripe / other
-- [ ] Real-time: Supabase Realtime / Stream Chat / Stream Video / WebSockets / other
-- [ ] Rate limiting: Upstash Redis / in-memory / none
-- [ ] Error tracking: Sentry / LogRocket / none
+- [ ] Framework: Next.js App Router / Pages Router / Nuxt / SvelteKit / other
+- [ ] Database: Supabase / PlanetScale / Neon / Firebase / Prisma ORM / raw SQL / other
+- [ ] Auth: Supabase Auth / NextAuth / Clerk / Auth0 / Firebase Auth / other
+- [ ] Payments: Stripe / Paystack / M-Pesa (Daraja/IntaSend) / Razorpay / PayPal / Paddle / other
+- [ ] Real-time: Supabase Realtime / Stream Chat / Stream Video / Pusher / Ably / WebSockets / other
+- [ ] Rate limiting: Upstash Redis / Cloudflare / express-rate-limit / in-memory / none
+- [ ] Error tracking: Sentry / Datadog / LogRocket / BugSnag / none
+- [ ] Hosting: Vercel / Netlify / Railway / Render / Fly.io / AWS / other
 
-Adjust the checks below to only test what applies. Skip irrelevant sections but note them as N/A.
+Adjust checks below to only test what applies. Skip irrelevant sections and note them as N/A.
 
 ---
 
 ## 1 — BUILD INTEGRITY
 
-**Run these commands. If they error, stop everything and fix before continuing.**
+**Run these commands. If they error, stop and fix before continuing.**
 
 ```bash
 # TypeScript — zero errors allowed
@@ -40,13 +42,12 @@ npx eslint . --ext .ts,.tsx --max-warnings 0
 npm run build
 ```
 
-Checklist:
 - [ ] `tsc --noEmit` exits with 0 errors
 - [ ] ESLint exits with 0 warnings and 0 errors
 - [ ] `npm run build` completes successfully — no build-time crashes
 - [ ] No `@ts-ignore` or `any` types added without a comment explaining why
 - [ ] No `console.log` left in production code (use a logger or remove)
-- [ ] No hardcoded `TODO` or `FIXME` comments blocking functionality
+- [ ] No `TODO` or `FIXME` comments blocking functionality
 
 ---
 
@@ -55,82 +56,82 @@ Checklist:
 **Nothing secret belongs in client-side code. Ever.**
 
 - [ ] All `.env` files are in `.gitignore` — confirm with `git status`
-- [ ] No API keys, secret tokens, or passwords are in any `NEXT_PUBLIC_` variable
-- [ ] No Supabase `service_role` key is used in client components or exposed to the browser
-- [ ] M-Pesa / Daraja consumer secret is server-side only
-- [ ] Paystack secret key is server-side only — only the public key goes to the client
+- [ ] No secret keys or tokens are in any `NEXT_PUBLIC_` / client-exposed variable
+- [ ] No database service role / admin keys are used in client components
+- [ ] All payment provider **secret** keys are server-side only — only public/publishable keys go to the client
 - [ ] All required env vars are documented in `.env.example` with placeholder values
-- [ ] If using Vercel/Render/Railway: confirm all env vars are set in the deployment dashboard, not just locally
+- [ ] If deployed to Vercel / Railway / Render: confirm all env vars are set in the dashboard, not just locally
+- [ ] No secrets committed in git history — run `git log --all --full-history -- "*.env"` to check
 
 ---
 
 ## 3 — AUTHENTICATION & AUTHORIZATION
 
-**Every protected route and API endpoint must verify the user.**
+**Every protected route and API endpoint must verify the user server-side.**
 
-- [ ] Every API route (`/api/**`) checks for a valid session before doing anything
+- [ ] Every API route checks for a valid session before executing any logic
 - [ ] Server Actions (if used) validate session server-side — not just client-side guards
-- [ ] Role checks (admin, tutor, student, etc.) are enforced server-side, not just hidden in the UI
-- [ ] Protected pages redirect unauthenticated users — not just show empty state
-- [ ] JWT tokens / session tokens are never stored in `localStorage` — use cookies with `httpOnly` flag
-- [ ] Auth callbacks and redirect URLs are validated against an allowlist (no open redirects)
-- [ ] Password reset and email verification flows require the user to be in the correct state before proceeding
+- [ ] Role checks (admin / moderator / paid user / etc.) are enforced server-side, not just hidden in the UI
+- [ ] Protected pages redirect unauthenticated users — not just show an empty state
+- [ ] Session tokens are never stored in `localStorage` — use cookies with `httpOnly` flag
+- [ ] Auth redirect URLs are validated against an allowlist (no open redirects)
+- [ ] Password reset and magic link flows verify the token before allowing any action
 
 ---
 
-## 4 — DATABASE & SUPABASE SAFETY
+## 4 — DATABASE SAFETY
 
-**RLS is your last line of defense. Treat it like a seatbelt — always on.**
+**Assume every user will try to read or write data that isn't theirs.**
 
-- [ ] Row Level Security (RLS) is ENABLED on every table that holds user data
-- [ ] Every RLS policy has been tested: can User A read or write User B's rows? (It should fail)
-- [ ] The `service_role` key is only used in server-side admin operations — never in a client or edge function accessible to users
-- [ ] No direct `DELETE` or `UPDATE` queries run without a `WHERE` clause scoped to the authenticated user's ID
+- [ ] Row-level security or equivalent access control is enabled on every table holding user data
+- [ ] Tested: can User A read or write User B's rows? (Should fail.)
+- [ ] Admin/service credentials are only used in server-side admin operations — never in user-facing routes
+- [ ] No `DELETE` or `UPDATE` runs without a `WHERE` clause scoped to the authenticated user
 - [ ] Migrations are up to date — no schema drift between local and production
-- [ ] Sensitive columns (passwords, payment refs, PII) are not returned in wildcard `SELECT *` queries that reach the client
-- [ ] If using Prisma: confirm queries are not bypassing RLS via the service client where they shouldn't be
+- [ ] Sensitive columns (tokens, payment refs, PII) are not returned in wildcard `SELECT *` queries reaching the client
+- [ ] Soft deletes preferred over hard deletes for user data — allows recovery
 
 ---
 
 ## 5 — INPUT VALIDATION & SANITIZATION
 
-**Never trust what comes in. Validate on the server, every time.**
+**Never trust what comes in. Validate on the server every time.**
 
-- [ ] All form inputs and API request bodies are validated with a schema (Zod preferred) on the server
-- [ ] File uploads: type is validated (not just extension), size is limited, file is not executed
-- [ ] Any content that gets rendered as HTML (user-generated descriptions, bios, etc.) is sanitized with DOMPurify or equivalent before render
-- [ ] URL parameters and query strings used in DB queries are validated — no raw interpolation
-- [ ] Email fields are validated as real email format
-- [ ] Phone numbers for M-Pesa are validated as Kenyan format (`254XXXXXXXXX`) before STK push
+- [ ] All form inputs and API request bodies are validated with a schema (Zod / Yup / Joi) on the server
+- [ ] File uploads: MIME type validated (not just extension), size is capped, file is never executed
+- [ ] Any user-generated content rendered as HTML is sanitized (DOMPurify / sanitize-html) before render
+- [ ] URL params and query strings used in DB queries are validated — no raw interpolation
+- [ ] Phone number format is validated before passing to any SMS or payment provider
+- [ ] Email fields are validated as proper email format server-side
 
 ---
 
 ## 6 — ERROR HANDLING
 
-**Every operation that can fail must be handled. Silence is the worst bug.**
+**Every operation that can fail must be handled. Silent failures are the worst bugs.**
 
-### API Routes / Server Actions
+### API Routes / Server
 - [ ] Every `async` function in an API route is wrapped in `try/catch`
-- [ ] Errors return a proper HTTP status code (400 for bad input, 401 for unauth, 403 for forbidden, 404 for not found, 500 for server error) — not always 200
-- [ ] Error responses return a consistent shape: `{ error: string, code?: string }` — not raw stack traces
-- [ ] Stack traces and internal error messages are never sent to the client in production
+- [ ] Errors return proper HTTP status codes (400 bad input, 401 unauth, 403 forbidden, 404 not found, 500 server error) — not always 200
+- [ ] Error responses return a consistent shape: `{ error: string, code?: string }` — no raw stack traces to the client
+- [ ] Internal error details and stack traces never reach the client in production
 
-### Client Side
-- [ ] Every `fetch` / `axios` call has `.catch()` or is in a `try/catch` with user-facing error feedback
-- [ ] Loading, error, and empty states are all handled for every data-fetching component — no silent blank screens
-- [ ] React Error Boundaries are in place around high-risk sections (video calls, payment forms, real-time feeds)
-- [ ] Toast / alert notifications show on errors — user always knows something went wrong
+### Client
+- [ ] Every `fetch` / `axios` call has error handling with user-facing feedback
+- [ ] Loading, error, and empty states are handled for every data-fetching component — no silent blank screens
+- [ ] React Error Boundaries wrap high-risk sections (video calls, payment forms, real-time feeds)
+- [ ] User always gets feedback when something goes wrong — toast, banner, or inline message
 
-### AbortController
+### AbortController & Cleanup
 - [ ] Any `fetch` inside a `useEffect` creates an `AbortController` and aborts on cleanup
-- [ ] Stream sessions (Stream Video / Stream Chat) call `.leave()` / `.disconnect()` inside the `useEffect` cleanup function — not inside an event handler only
-- [ ] Real-time subscriptions (Supabase Realtime channels) are unsubscribed on component unmount
+- [ ] Real-time sessions (video calls, chat) call their disconnect/leave method inside `useEffect` cleanup
+- [ ] Real-time subscriptions are unsubscribed on component unmount
 
 ```typescript
-// Correct pattern — verify this exists wherever you fetch in useEffect
+// Correct pattern — verify this exists wherever you fetch inside useEffect
 useEffect(() => {
   const controller = new AbortController();
-  fetchSomething({ signal: controller.signal }).catch((err) => {
+  fetchData({ signal: controller.signal }).catch((err) => {
     if (err.name === 'AbortError') return; // expected, ignore
     setError(err.message);
   });
@@ -145,134 +146,133 @@ useEffect(() => {
 **Every public-facing endpoint needs protection against abuse.**
 
 - [ ] Auth endpoints (login, register, password reset) are rate limited — max attempts per IP per minute
-- [ ] OTP / verification code endpoints are rate limited — max 5 attempts per 15 minutes
-- [ ] AI endpoints (OpenRouter, Claude, etc.) are rate limited per user — not just globally
-- [ ] M-Pesa STK Push endpoints are rate limited per user — prevent duplicate triggers
-- [ ] Paystack webhook endpoint validates the signature before processing — not just any POST
+- [ ] OTP / verification code endpoints rate limited — max 5 attempts per 15 minutes
+- [ ] AI / LLM endpoints rate limited per user — not just globally
+- [ ] Payment trigger endpoints rate limited per user — prevent duplicate charges
+- [ ] Webhook endpoints validate the provider signature before processing — not just any POST
 - [ ] Rate limit responses return HTTP 429 with a `Retry-After` header
 
-If using Upstash Redis, verify the sliding window config matches the sensitivity of the endpoint:
-
-```typescript
-// High-sensitivity (auth, payments): 5 requests / 60 seconds
-// Medium (AI queries): 20 requests / 60 seconds
-// Low (general API): 100 requests / 60 seconds
+Suggested thresholds:
+```
+High sensitivity (auth, payments):  5 req / 60s
+Medium (AI queries):               20 req / 60s
+Low (general API):                100 req / 60s
 ```
 
 ---
 
 ## 8 — PAYMENT SAFETY
 
-**Money flows are irreversible. Triple-check these.**
+**Money flows are irreversible. Triple-check these regardless of provider.**
 
-### Paystack
-- [ ] Webhook signature is verified using `x-paystack-signature` header before any order is fulfilled
-- [ ] Payment verification calls Paystack's verify endpoint server-side — never trust client-side success callback alone
-- [ ] Idempotency: duplicate webhook deliveries for the same `reference` are handled (check if already processed before acting)
-- [ ] Subscription plan IDs are stored server-side — client cannot self-assign a premium plan
-- [ ] Refund logic (if any) requires admin role
+### All payment providers
+- [ ] Webhook signature is verified using the provider's header before fulfilling any order
+- [ ] Payment is verified server-side via the provider's verify endpoint — never trust client-side success callbacks alone
+- [ ] Idempotency: duplicate webhook deliveries for the same reference/event ID are handled (check if already processed)
+- [ ] Subscription plan / product IDs are stored server-side — client cannot self-assign a paid plan
+- [ ] Refund logic requires elevated permissions (admin role or equivalent)
+- [ ] Test mode credentials are never active in production — controlled by env var
 
-### M-Pesa / Daraja / IntaSend
-- [ ] STK Push callback URL is HTTPS and server-side
-- [ ] Callback handler validates the incoming payload structure before updating any DB record
-- [ ] Transaction status is confirmed via query API before crediting a user — don't trust the callback alone
-- [ ] Sandbox credentials are never active in production — mode switch is enforced by env var, not manual toggle
+### Stripe-specific
+- [ ] Webhook handled via `stripe.webhooks.constructEvent()` — signature verified before any logic runs
+- [ ] `payment_intent.succeeded` is used to fulfill orders — not just `checkout.session.completed`
+- [ ] Customer portal enabled for subscription management — no manual cancel flows
+
+### Paystack-specific
+- [ ] Webhook validated using `x-paystack-signature` HMAC SHA-512 header
+- [ ] Transaction verified via `GET /transaction/verify/:reference` before crediting user
+
+### M-Pesa / Daraja / IntaSend-specific
+- [ ] STK Push callback URL is HTTPS and server-side only
+- [ ] Callback payload structure validated before updating any DB record
+- [ ] Transaction status confirmed via query API before crediting — callback alone is not enough
+
+### Paddle / Razorpay / other
+- [ ] Follow the same pattern: verify signature → verify server-side → idempotency → no client trust
 
 ---
 
 ## 9 — SECURITY HEADERS & CORS
 
-**A misconfigured CORS policy is an open door.**
-
-- [ ] CORS is explicitly configured — `*` is not acceptable for authenticated APIs
-- [ ] Allowed origins list only includes known, trusted domains (your frontend URL, not a wildcard)
-- [ ] Content Security Policy (CSP) header is set — even a basic one blocks XSS
-- [ ] `X-Frame-Options: DENY` is set to prevent clickjacking
-- [ ] HTTPS is enforced — no mixed content (HTTP resources on HTTPS pages)
+- [ ] CORS explicitly configured — `*` is not acceptable for authenticated APIs
+- [ ] Allowed origins list only includes known, trusted domains — no wildcards
+- [ ] Content Security Policy (CSP) header is set
+- [ ] `X-Frame-Options: DENY` set to prevent clickjacking
+- [ ] HTTPS enforced — no mixed content
 - [ ] Cookies are `Secure`, `HttpOnly`, and `SameSite=Strict` or `Lax`
-
-In Next.js, verify `next.config.js` has a `headers()` block or middleware sets these.
 
 ---
 
 ## 10 — REAL-TIME & SUBSCRIPTION CLEANUP
 
-**Leaked subscriptions cause silent memory/billing/state bugs.**
-
-- [ ] Every Supabase `channel.subscribe()` has a corresponding `supabase.removeChannel()` in cleanup
-- [ ] Stream Video: `call.leave()` is called in `useEffect` cleanup — not only on button click
-- [ ] Stream Chat: `client.disconnectUser()` is called when the user logs out or the component unmounts
+- [ ] Every subscription has a corresponding cleanup / unsubscribe in `useEffect` return
+- [ ] Video/audio call sessions disconnect on component unmount — not only on button click
+- [ ] Chat clients disconnect when the user logs out
 - [ ] WebSocket connections are closed on unmount
-- [ ] No subscriptions are set up inside event handlers — only inside `useEffect` with cleanup
+- [ ] No subscriptions are set up inside event handlers — only inside `useEffect` with cleanup return
 
 ---
 
 ## 11 — PERFORMANCE BASICS
 
-**Slow is broken for Kenyan mobile users on 3G.**
-
-- [ ] Images use `next/image` with explicit `width` and `height` — no layout shift
-- [ ] Large lists are paginated or virtualized — not loading 500 rows at once
-- [ ] AI/LLM calls use streaming where possible — don't make users stare at a spinner for 8 seconds
-- [ ] No `useEffect` runs on every render due to a missing or wrong dependency array
-- [ ] Database queries use indexes on columns that are filtered or sorted frequently
-- [ ] Heavy client-side JS (Three.js, charts, etc.) is lazy-loaded — not in the main bundle
+- [ ] Images are optimized and served with explicit dimensions — no layout shift (CLS)
+- [ ] Large lists are paginated or virtualized — not loading hundreds of rows at once
+- [ ] AI / LLM calls use streaming where possible — no 8-second blank spinners
+- [ ] No `useEffect` runs on every render due to wrong dependency array
+- [ ] Frequently filtered or sorted DB columns have indexes
+- [ ] Heavy client-side libraries (3D, charts, editors) are lazy-loaded — not in the main bundle
 
 ---
 
 ## 12 — NOTIFICATIONS & BACKGROUND JOBS
 
-- [ ] Web push notification subscription is stored per user — not globally
-- [ ] Push notification service worker handles errors gracefully — a failed notification does not crash the app
-- [ ] Cron jobs / scheduled functions have error handling and send alerts on failure
-- [ ] Email sends (Resend, Nodemailer, etc.) are non-blocking — a failed email does not fail the user's primary action
+- [ ] Push notification subscriptions stored per user — not globally
+- [ ] Failed notifications do not crash the app — errors caught and logged silently
+- [ ] Cron jobs / scheduled functions have error handling and alerting on failure
+- [ ] Email sends are non-blocking — a failed email does not fail the user's primary action
+- [ ] Background jobs are idempotent — safe to run twice without duplicating side effects
 
 ---
 
 ## 13 — LOGGING & OBSERVABILITY
 
-- [ ] Sentry (or equivalent) is initialized and capturing unhandled errors in production
-- [ ] Source maps are uploaded to Sentry so stack traces are readable — not minified gibberish
-- [ ] Critical payment and auth events are logged with enough context to debug (user ID, amount, reference — never card numbers or passwords)
-- [ ] No PII (names, emails, phone numbers) is written to plain-text logs
+- [ ] Error tracking (Sentry / Datadog / etc.) initialized and capturing unhandled errors in production
+- [ ] Source maps uploaded so stack traces are readable — not minified
+- [ ] Critical events (payments, auth, role changes) logged with enough context to debug
+- [ ] No PII (names, emails, phone numbers, addresses) written to plain-text logs
+- [ ] No payment card data or raw tokens written anywhere in logs
 
 ---
 
 ## 14 — DEPLOY READINESS
 
-**Final checks before you push the button.**
-
-- [ ] Feature has been tested on mobile viewport (375px width minimum)
-- [ ] Feature works without JavaScript disabled for critical flows (or gracefully degrades)
-- [ ] All new routes are included in the sitemap (if public-facing)
-- [ ] Database migrations are ready to run in production — not just local
-- [ ] Rollback plan exists: if this deploy breaks something, what is step 1?
-- [ ] No stale AI-agent-created branches are being merged accidentally — confirm the correct branch
-- [ ] PR has been reviewed or self-reviewed against the SCOPE.md for the feature
+- [ ] Feature tested on mobile viewport (375px minimum)
+- [ ] All new public-facing routes added to sitemap if applicable
+- [ ] Database migrations ready to run in production
+- [ ] Rollback plan defined: if this deploy breaks something, what is step 1?
+- [ ] Correct branch is being deployed — no stale or experimental branches merged by accident
+- [ ] No debug flags, test users, or seed data active in production config
 
 ---
 
 ## FINAL SUMMARY — OUTPUT THIS TABLE
 
-After completing all checks, output this table:
-
 | Section | Status | Issues Found |
 |---|---|---|
-| 1. Build Integrity | PASS / FAIL | — |
-| 2. Env & Secrets | PASS / FAIL | — |
-| 3. Auth & Authorization | PASS / FAIL | — |
-| 4. Database Safety | PASS / FAIL | — |
-| 5. Input Validation | PASS / FAIL | — |
-| 6. Error Handling | PASS / FAIL | — |
-| 7. Rate Limiting | PASS / FAIL | — |
-| 8. Payment Safety | PASS / FAIL | — |
-| 9. Security Headers | PASS / FAIL | — |
-| 10. Real-time Cleanup | PASS / FAIL | — |
-| 11. Performance | PASS / FAIL | — |
-| 12. Notifications | PASS / FAIL | — |
-| 13. Logging | PASS / FAIL | — |
-| 14. Deploy Readiness | PASS / FAIL | — |
+| 1. Build Integrity | PASS / FAIL / N/A | — |
+| 2. Env & Secrets | PASS / FAIL / N/A | — |
+| 3. Auth & Authorization | PASS / FAIL / N/A | — |
+| 4. Database Safety | PASS / FAIL / N/A | — |
+| 5. Input Validation | PASS / FAIL / N/A | — |
+| 6. Error Handling | PASS / FAIL / N/A | — |
+| 7. Rate Limiting | PASS / FAIL / N/A | — |
+| 8. Payment Safety | PASS / FAIL / N/A | — |
+| 9. Security Headers | PASS / FAIL / N/A | — |
+| 10. Real-time Cleanup | PASS / FAIL / N/A | — |
+| 11. Performance | PASS / FAIL / N/A | — |
+| 12. Notifications | PASS / FAIL / N/A | — |
+| 13. Logging | PASS / FAIL / N/A | — |
+| 14. Deploy Readiness | PASS / FAIL / N/A | — |
 
-**If any row is FAIL: do not deploy. Fix and re-run that section.**
-
+**If any row is FAIL: stop. Fix it. Re-run that section.**
 **If all rows are PASS or N/A: ship it.**
