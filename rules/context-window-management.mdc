@@ -1,0 +1,100 @@
+---
+description: Stops agents from hallucinating on large codebases. Forces the agent to work in sections, summarise before continuing, confirm when uncertain, and hand off state cleanly when hitting context limits.
+alwaysApply: false
+---
+
+# Context Window Management — Don't Guess, Confirm
+
+## The problem this solves
+
+When a codebase gets large, agents start hallucinating — inventing function names, assuming imports exist, referencing files they have never read. They also silently degrade mid-task when their context fills up, producing worse output without telling you. This rule stops both.
+
+---
+
+## Before starting any task on a large codebase
+
+- Read only the files directly relevant to the task — not the entire project
+- Do not reference a function, component, or variable unless you have seen it in a file you actually read
+- If you are unsure something exists — say so, search for it, then continue
+
+```
+CONTEXT PLAN
+────────────
+Files I need to read for this task: [list — be specific]
+Files I will NOT read unless needed: [everything else]
+What I already know without reading: [only things stated in this conversation]
+```
+
+---
+
+## When you hit uncertainty mid-task
+
+Stop and say this explicitly — do not guess:
+
+```
+UNCERTAINTY FLAG
+────────────────
+I am not certain [X] exists in this codebase.
+I need to check [specific file or directory] before continuing.
+Proceeding without checking would risk [describe the failure mode].
+```
+
+Then check. Never proceed on an assumption when you can verify.
+
+---
+
+## Summarise before continuing long tasks
+
+After every major section of a long task, output this before moving on:
+
+```
+PROGRESS CHECKPOINT
+───────────────────
+Completed: [what is done]
+Remaining: [what is left]
+Assumptions made so far: [anything assumed without verifying]
+Files not yet read that may be relevant: [list]
+Risk of proceeding: LOW / MEDIUM / HIGH
+```
+
+If risk is HIGH — stop and ask before continuing.
+
+---
+
+## When hitting context limit mid-task — Save State and Hand Off
+
+This is the part no other rule covers. When you feel context degrading — responses getting vague, earlier decisions being forgotten, uncertainty increasing — do not push through. Stop and hand off cleanly.
+
+Output this before stopping:
+
+```
+CONTEXT HANDOFF
+───────────────
+Task: [original task in one sentence]
+Status: [what percentage is done]
+Completed steps: [bullet list of exactly what was done]
+Remaining steps: [bullet list of exactly what is left]
+Decisions made: [every non-obvious choice made so far and why]
+Files modified: [list every file touched and what changed]
+Files still needed: [list files the next session needs to read]
+Next action: [the exact first thing the next session should do]
+Watch out for: [anything that could go wrong in the remaining steps]
+```
+
+Then stop. Do not attempt to finish a task you cannot hold in context. A clean handoff is always better than a hallucinated completion.
+
+---
+
+## Hard rules
+
+- [ ] Never reference a function you have not seen in the actual code
+- [ ] Never assume a file exists — check with a directory listing first
+- [ ] Never silently continue when context is degrading — flag it
+- [ ] Never complete a handoff without listing every decision made so far
+- [ ] Always read the handoff note at the start of a new session before touching anything
+
+---
+
+## The rule in one line
+
+Uncertainty is not a reason to guess — it is a reason to stop and check. Context limits are not a reason to push through — they are a reason to hand off cleanly.
