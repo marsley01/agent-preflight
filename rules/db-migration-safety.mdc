@@ -1,0 +1,63 @@
+---
+description: Database migration safety gate. Run before any schema change — adding columns, dropping columns, renaming tables, adding indexes, changing types. Schema mistakes are the hardest bugs to undo.
+alwaysApply: false
+---
+
+# DB Migration Safety — Schema Changes Kill Production
+
+A bad migration can lock a table, corrupt data, or take down your app for hours. This rule forces you to think before you alter.
+
+## Before writing any migration file
+
+Answer these out loud:
+
+```
+MIGRATION BRIEF
+───────────────
+What is changing: [table name, column name, operation]
+Why it is changing: [the reason — not "because it was asked"]
+Is this destructive: YES / NO
+  (Destructive = DROP, RENAME, TYPE CHANGE, removing NOT NULL, shortening VARCHAR)
+Estimated rows affected: [rough count if known]
+Can this be rolled back in under 5 minutes: YES / NO
+```
+
+If destructive is YES and rollback is NO — stop. Redesign the migration.
+
+## Required steps for every migration
+
+- [ ] Migration is written as a separate file — not inline in application code
+- [ ] Migration has a corresponding rollback / down function
+- [ ] Migration tested on a local or staging environment before production
+- [ ] If adding a new NOT NULL column — it has a DEFAULT value, or is added in two steps (nullable first, backfill, then add constraint)
+- [ ] If dropping a column — the application code no longer references it in ANY query before the migration runs
+- [ ] If renaming a table or column — a compatibility alias or two-phase rename is used, not a single rename in one deploy
+
+## Index rules
+
+- [ ] Every new foreign key column has an index
+- [ ] Every column used in a WHERE clause on a large table has an index
+- [ ] No index added on a large production table without `CONCURRENTLY` (PostgreSQL) or equivalent — this blocks writes
+- [ ] Composite indexes are ordered by selectivity — most selective column first
+
+## The two-deploy rule for destructive changes
+
+Never drop a column or table in the same deploy that removes the code referencing it.
+
+```
+Deploy 1: Remove all code that reads or writes the column
+Deploy 2: Drop the column
+```
+
+This gives you a safe rollback window.
+
+## After the migration runs in production
+
+- [ ] Verify row counts are what you expected
+- [ ] Verify the application is not throwing errors related to the changed schema
+- [ ] Verify query performance on affected tables has not degraded
+- [ ] Document the change — what changed, why, and when
+
+## The rule in one line
+
+If you cannot roll it back in 5 minutes, you are not ready to run it.
