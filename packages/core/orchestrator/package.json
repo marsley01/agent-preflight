@@ -16,7 +16,7 @@
     "@agent-preflight/protocol": "workspace:*",
     "@agent-preflight/memory": "workspace:*",
     "@agent-preflight/utils": "workspace:*",
-    "uuid": "^9.0.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

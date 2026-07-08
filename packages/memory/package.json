@@ -14,7 +14,7 @@
     "@agent-preflight/security": "workspace:*",
     "@agent-preflight/types": "workspace:*",
     "@agent-preflight/utils": "workspace:*",
-    "uuid": "^9.0.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "@types/uuid": "^9.0.8",
