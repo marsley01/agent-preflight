@@ -1,0 +1,24 @@
+{
+  "name": "@agent-preflight/security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Enterprise-grade security framework for the AI Agent Operating System — RBAC, ABAC, encryption, audit, threat detection, and sandboxing",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-preflight/types": "workspace:*",
+    "@agent-preflight/utils": "workspace:*",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

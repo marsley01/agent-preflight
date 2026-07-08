@@ -1,0 +1,129 @@
+x-app-defaults: &app-defaults
+  image: ghcr.io/anomalyco/agent-preflight:latest
+  env_file:
+    - ../../.env.production
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  networks:
+    - preflight-network
+  restart: always
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  preflight-app:
+    <<: *app-defaults
+    container_name: preflight-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://preflight:${DB_PASSWORD}@postgres:5432/preflight
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  preflight-worker:
+    <<: *app-defaults
+    container_name: preflight-worker
+    command: ["node", "apps/worker/dist/index.js"]
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    ports: []
+
+  redis:
+    image: redis:7-alpine
+    container_name: preflight-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - preflight-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: preflight-postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: preflight
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: preflight
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preflight"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - preflight-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  preflight-network:
+    name: preflight-network
+    driver: bridge

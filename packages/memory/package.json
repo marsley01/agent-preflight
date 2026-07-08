@@ -1,0 +1,23 @@
+{
+  "name": "@agent-preflight/memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-preflight/security": "workspace:*",
+    "@agent-preflight/types": "workspace:*",
+    "@agent-preflight/utils": "workspace:*",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.8",
+    "typescript": "^5.5.0"
+  }
+}

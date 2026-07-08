@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-preflight
+  labels:
+    name: agent-preflight
+    environment: production
+    app.kubernetes.io/name: agent-preflight
+    app.kubernetes.io/part-of: agent-preflight

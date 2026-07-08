@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-preflight-config
+  namespace: agent-preflight
+  labels:
+    app.kubernetes.io/name: agent-preflight
+    app.kubernetes.io/part-of: agent-preflight
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  LOG_LEVEL: "info"
+  REDIS_URL: "redis://redis-service:6379"
+  DATABASE_URL: "postgresql://preflight:$(DB_PASSWORD)@postgres-service:5432/preflight"
+  OTEL_SERVICE_NAME: "agent-preflight"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://grafana-tempo:4317"

@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
+    "types": []
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../types" },
+    { "path": "../../protocol" },
+    { "path": "../../memory" },
+    { "path": "../../security" },
+    { "path": "../../utils" }
+  ]
+}
