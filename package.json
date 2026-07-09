@@ -30,6 +30,7 @@
     "@changesets/cli": "^2.27.0",
     "@types/node": "^20.0.0",
     "eslint": "^9.0.0",
+    "next": "16.2.10",
     "prettier": "^3.0.0",
     "turbo": "^2.0.0",
     "typescript": "^5.5.0",
