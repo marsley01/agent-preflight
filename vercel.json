@@ -1,6 +1,6 @@
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @agent-preflight/scanner build && pnpm --filter dashboard build",
+  "buildCommand": "pnpm --filter @agent-preflight/scanner build && cd apps/dashboard && npx next build",
   "outputDirectory": "apps/dashboard/.next",
   "framework": "nextjs"
 }
