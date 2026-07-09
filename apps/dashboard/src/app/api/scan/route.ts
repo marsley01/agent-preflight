@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { scanProject } from "@agent-preflight/scanner";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const report = await scanProject(process.cwd());
+    const body = await req.json().catch(() => ({}));
+    const projectPath = body.projectPath || process.cwd();
+    const report = await scanProject(projectPath);
     return NextResponse.json(report);
   } catch (err) {
     return NextResponse.json(

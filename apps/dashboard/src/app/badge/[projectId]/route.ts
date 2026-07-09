@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { scanProject, generateOverallBadgeSVG } from "@agent-preflight/scanner";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await params;
-
-  const projectPath = process.cwd();
+  const searchParams = req.nextUrl.searchParams;
+  const projectPath = searchParams.get("path") || process.cwd();
 
   try {
     const report = await scanProject(projectPath);
