@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Sidebar from "./Sidebar";
+import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +12,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
-  title: "Agent Preflight Dashboard",
-  description: "Production readiness scanner dashboard",
+  title: "Agent Preflight — The Open-Source OS for AI Agents",
+  description: "Build, deploy, monitor, and orchestrate AI agents at enterprise scale — across any framework, any model, any cloud.",
 };
 
 export default function RootLayout({
@@ -24,12 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} h-full antialiased`}
     >
-      <body className="min-h-full">
-        <Sidebar />
-        <main className="ml-56 min-h-screen p-8">{children}</main>
-      </body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }
