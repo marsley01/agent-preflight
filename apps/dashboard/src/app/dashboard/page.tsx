@@ -27,33 +27,6 @@ function saveReport(report: ScanReport) {
   } catch {}
 }
 
-const scannerProgressLabels: Record<string, string> = {
-  security: "Security scan",
-  "ai-safety": "AI safety scan",
-  "code-quality": "Code quality scan",
-  performance: "Performance scan",
-  deployment: "Deployment scan",
-};
-
-function ShareBadgeButton() {
-  const [copied, setCopied] = useState(false);
-  const markdown = `![Agent Preflight](${typeof window !== "undefined" ? window.location.origin : ""}/badge/current)`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(markdown);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  };
-
-  return (
-    <button onClick={copy} className="text-xs text-[var(--color-muted)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 hover:text-white hover:border-[var(--color-border-hover)] transition-colors">
-      {copied ? "Copied!" : "Share Badge"}
-    </button>
-  );
-}
-
 const scannerLabels: Record<string, string> = {
   security: "Security",
   "ai-safety": "AI Safety",
@@ -62,60 +35,118 @@ const scannerLabels: Record<string, string> = {
   deployment: "Deployment",
 };
 
-function ScannerSection({ result }: { result: ScannerResult }) {
-  const [open, setOpen] = useState(false);
-  const label = scannerLabels[result.category] || result.scanner;
+const scannerIcons: Record<string, string> = {
+  security: "🔒",
+  "ai-safety": "🤖",
+  "code-quality": "📐",
+  performance: "⚡",
+  deployment: "🚀",
+};
 
-  const severityColor = (sev: string) =>
-    sev === "critical" ? "var(--color-danger)" :
-    sev === "high" ? "var(--color-warning)" :
-    sev === "medium" ? "var(--color-accent)" :
+const scannerDescs: Record<string, string> = {
+  security: "Secrets, injections, CSP, dependencies",
+  "ai-safety": "Prompt injection, guardrails, unsafe output",
+  "code-quality": "Unused deps, large files, TODOs, console.log",
+  performance: "Large deps, image opt, code splitting",
+  deployment: "Build scripts, Docker, CI/CD, env files",
+};
+
+function FindingRow({ finding }: { finding: ScannerResult["findings"][0] }) {
+  const [open, setOpen] = useState(false);
+
+  const severityColor =
+    finding.severity === "critical" ? "var(--color-danger)" :
+    finding.severity === "high" ? "var(--color-warning)" :
+    finding.severity === "medium" ? "var(--color-accent)" :
     "var(--color-success)";
 
   return (
-    <div className="card">
+    <div className="border-b border-[var(--color-border)] last:border-0">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between p-4 text-left"
+        className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-white/[0.01] transition-colors"
       >
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-white">{label}</span>
-          {result.findings.length > 0 ? (
-            <span className="text-xs text-[var(--color-muted)]">
-              {result.findings.filter(f => f.severity === "critical").length > 0 &&
-                <span className="severity-critical mr-1">{result.findings.filter(f => f.severity === "critical").length} critical</span>}
-              {result.findings.filter(f => f.severity === "high").length > 0 &&
-                <span className="severity-high mr-1">{result.findings.filter(f => f.severity === "high").length} high</span>}
-              {result.findings.filter(f => f.severity === "medium").length > 0 &&
-                <span className="severity-medium mr-1">{result.findings.filter(f => f.severity === "medium").length} medium</span>}
-              {result.findings.filter(f => f.severity === "low").length > 0 &&
-                <span className="severity-low">{result.findings.filter(f => f.severity === "low").length} low</span>}
-            </span>
-          ) : (
-            <span className="text-xs text-[var(--color-success)]">No issues</span>
+        <span
+          className="font-medium min-w-[56px] text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded leading-5 text-center"
+          style={{ background: `${severityColor}15`, color: severityColor }}
+        >
+          {finding.severity}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-white">{finding.title}</div>
+          <div className="text-[11px] text-[var(--color-muted)] mt-0.5 truncate">{finding.file || finding.impact}</div>
+        </div>
+        <span className={`text-[10px] text-[var(--color-muted)] mt-1 transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pl-[75px] space-y-2">
+          <p className="text-xs text-[var(--color-muted)] leading-relaxed">{finding.description}</p>
+          <div className="flex flex-wrap gap-2">
+            {finding.file && (
+              <span className="text-[11px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 py-0.5 text-[var(--color-muted)]">
+                {finding.file}{finding.line ? `:${finding.line}` : ""}
+              </span>
+            )}
+            {finding.impact && (
+              <span className="text-[11px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 py-0.5 text-[var(--color-muted)]">
+                {finding.impact}
+              </span>
+            )}
+          </div>
+          {finding.suggestion && (
+            <div className="text-xs text-[var(--color-accent)] leading-relaxed bg-[var(--color-accent)]/5 border border-[var(--color-accent)]/10 rounded-lg p-2.5">
+              <span className="font-medium">Fix: </span>{finding.suggestion}
+            </div>
           )}
         </div>
-        <span className={`text-xs text-[var(--color-muted)] transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+      )}
+    </div>
+  );
+}
+
+function ScannerSection({ result }: { result: ScannerResult }) {
+  const [open, setOpen] = useState(true);
+  const label = scannerLabels[result.category] || result.scanner;
+  const icon = scannerIcons[result.category] || "📋";
+
+  const critical = result.findings.filter(f => f.severity === "critical").length;
+  const high = result.findings.filter(f => f.severity === "high").length;
+  const medium = result.findings.filter(f => f.severity === "medium").length;
+  const low = result.findings.filter(f => f.severity === "low").length;
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.01] transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-base">{icon}</span>
+          <div>
+            <span className="text-sm font-medium text-white">{label}</span>
+            <span className="text-[11px] text-[var(--color-muted)] ml-2">{result.durationMs}ms</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {result.findings.length === 0 ? (
+            <span className="text-[11px] text-[var(--color-success)]">✓ Clean</span>
+          ) : (
+            <div className="flex gap-2 text-[11px]">
+              {critical > 0 && <span className="severity-critical">{critical} critical</span>}
+              {high > 0 && <span className="severity-high">{high} high</span>}
+              {medium > 0 && <span className="severity-medium">{medium} med</span>}
+              {low > 0 && <span className="severity-low">{low} low</span>}
+            </div>
+          )}
+          <span className={`text-[10px] text-[var(--color-muted)] transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
+        </div>
       </button>
       {open && (
         <div className="border-t border-[var(--color-border)]">
           {result.findings.length === 0 ? (
-            <p className="p-4 text-sm text-[var(--color-muted)]">No findings in this category.</p>
+            <p className="px-4 py-6 text-sm text-[var(--color-muted)] text-center">No issues found in this category.</p>
           ) : (
-            result.findings.map((f) => (
-              <div key={f.id} className="flex items-start gap-3 px-4 py-3 text-sm border-b border-[var(--color-border)] last:border-0">
-                <span
-                  className="font-medium min-w-[60px] text-xs uppercase"
-                  style={{ color: severityColor(f.severity) }}
-                >
-                  {f.severity}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white">{f.title}</div>
-                  <div className="text-[var(--color-muted)] text-xs mt-0.5 truncate">{f.file || f.impact}</div>
-                </div>
-              </div>
-            ))
+            result.findings.map((f) => <FindingRow key={f.id} finding={f} />)
           )}
         </div>
       )}
@@ -135,8 +166,11 @@ export default function DashboardPage() {
   const [report, setReport] = useState<ScanReport | null>(null);
   const [scanning, setScanning] = useState(false);
   const [currentScanner, setCurrentScanner] = useState<string | null>(null);
-  const [projectPath, setProjectPath] = useState(".");
+  const [projectPath, setProjectPath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<{ name: string; path: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [scanPhase, setScanPhase] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = loadSavedReport();
@@ -144,7 +178,17 @@ export default function DashboardPage() {
     try {
       const savedPath = localStorage.getItem("agent-preflight-project-path");
       if (savedPath) setProjectPath(savedPath);
-    } catch {}
+      else setProjectPath(".");
+    } catch {
+      setProjectPath(".");
+    }
+
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.projects) setSuggestions(data.projects);
+      })
+      .catch(() => {});
   }, []);
 
   const runScan = useCallback(async () => {
@@ -153,15 +197,18 @@ export default function DashboardPage() {
     setReport(null);
 
     try {
+      setScanPhase("Analyzing project structure...");
       for (const s of scanners) {
         setCurrentScanner(s.id);
-        await new Promise((r) => setTimeout(r, 150));
+        setScanPhase(`Running ${scannerLabels[s.id]} scan — ${scannerDescs[s.id]}`);
+        await new Promise((r) => setTimeout(r, 200));
       }
 
+      setScanPhase("Compiling results...");
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectPath: projectPath === "." ? process.cwd() : projectPath }),
+        body: JSON.stringify({ projectPath: projectPath || "." }),
       });
 
       if (!res.ok) {
@@ -172,12 +219,13 @@ export default function DashboardPage() {
       const data = await res.json();
       setReport(data);
       saveReport(data);
-      setCurrentScanner(null);
+      setScanPhase(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Scan failed");
-      setCurrentScanner(null);
+      setScanPhase(null);
     } finally {
       setScanning(false);
+      setCurrentScanner(null);
     }
   }, [projectPath]);
 
@@ -187,76 +235,147 @@ export default function DashboardPage() {
       "var(--color-danger)"
     : "var(--color-border)";
 
+  const downloadReport = () => {
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `preflight-${report.projectName}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const currentIdx = currentScanner ? scanners.findIndex((s) => s.id === currentScanner) : -1;
+
   return (
     <div className="max-w-5xl">
-      <div className="flex items-start justify-between mb-8 gap-4">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
-          <p className="text-sm text-[var(--color-muted)] mt-1">
-            Production readiness overview
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <div className="relative">
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
+        <p className="text-sm text-[var(--color-muted)] mt-1">
+          Point at any project and scan it for production readiness
+        </p>
+      </div>
+
+      <div className="card p-5 mb-8">
+        <div className="flex items-end gap-3">
+          <div className="flex-1 relative">
+            <label className="text-xs text-[var(--color-muted)] font-medium block mb-1.5">Project to scan</label>
             <input
               type="text"
               value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="Project path (e.g. .)"
-              className="w-48 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-muted)]"
+              onChange={(e) => { setProjectPath(e.target.value); setShowSuggestions(true); }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              placeholder="e.g. . or ../../my-project"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-muted)]"
             />
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.path}
+                    onMouseDown={() => { setProjectPath(s.path); setShowSuggestions(false); }}
+                    className="w-full text-left px-3 py-2 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                  >
+                    <span className="text-[var(--color-muted)]">📁</span>
+                    {s.name}
+                    <span className="text-[10px] text-[var(--color-muted)] ml-auto truncate max-w-[200px]">{s.path}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             onClick={runScan}
-            disabled={scanning}
-            className="btn-primary disabled:opacity-50 flex items-center gap-2"
+            disabled={scanning || !projectPath}
+            className="btn-primary disabled:opacity-50 flex items-center gap-2 h-[38px]"
           >
             {scanning ? (
               <>
-                <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Scanning...
+                <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Scanning
               </>
             ) : (
-              "Run Scan"
+              <>
+                <span>Scan</span>
+              </>
             )}
           </button>
+          {report && (
+            <button
+              onClick={downloadReport}
+              className="h-[38px] px-3 text-xs text-[var(--color-muted)] border border-[var(--color-border)] rounded-lg hover:text-white hover:border-[var(--color-border-hover)] transition-colors flex items-center gap-1.5"
+              title="Download JSON report"
+            >
+              ↓ Export
+            </button>
+          )}
         </div>
+
+        {suggestions.length > 0 && (
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <span className="text-[10px] text-[var(--color-muted)] uppercase tracking-wider">Nearby:</span>
+            {suggestions.slice(0, 6).map((s) => (
+              <button
+                key={s.path}
+                onClick={() => setProjectPath(s.path)}
+                className="text-[11px] px-2.5 py-1 rounded-full border border-[var(--color-border)] text-[var(--color-muted)] hover:text-white hover:border-[var(--color-border-hover)] transition-colors"
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {scanning && currentScanner && (
-        <div className="card p-5 mb-6">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="inline-block w-4 h-4 border-2 border-[var(--color-accent)]/30 border-t-[var(--color-accent)] rounded-full animate-spin" />
-            <span className="text-sm text-white">{scannerProgressLabels[currentScanner] || currentScanner}</span>
+      {scanning && (
+        <div className="card p-6 mb-6 animate-in fade-in">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="inline-block w-5 h-5 border-2 border-[var(--color-accent)]/30 border-t-[var(--color-accent)] rounded-full animate-spin" />
+            <div>
+              <span className="text-sm font-medium text-white">
+                {currentScanner ? scannerLabels[currentScanner] || "Scanning" : "Starting..."}
+              </span>
+              <p className="text-[11px] text-[var(--color-muted)] mt-0.5">{scanPhase}</p>
+            </div>
           </div>
-          <div className="flex gap-2">
-            {scanners.map((s) => (
-              <div
-                key={s.id}
-                className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
-                  scanners.indexOf(s) < scanners.findIndex((x) => x.id === currentScanner)
-                    ? "bg-[var(--color-accent)]"
-                    : scanners.indexOf(s) === scanners.findIndex((x) => x.id === currentScanner)
-                    ? "bg-[var(--color-accent)]/50"
-                    : "bg-[var(--color-border)]"
-                }`}
-              />
+          <div className="flex gap-1.5">
+            {scanners.map((s, i) => (
+              <div key={s.id} className="flex-1">
+                <div
+                  className={`h-2 rounded-full transition-all duration-500 ${
+                    i < currentIdx
+                      ? "bg-[var(--color-accent)]"
+                      : i === currentIdx
+                      ? "bg-[var(--color-accent)]/60 animate-pulse"
+                      : "bg-[var(--color-border)]"
+                  }`}
+                />
+                <div className={`text-[10px] mt-1 text-center ${i <= currentIdx ? "text-[var(--color-accent)]" : "text-[var(--color-muted)]"}`}>
+                  {scannerIcons[s.id]}
+                </div>
+              </div>
             ))}
           </div>
         </div>
       )}
 
       {error && (
-        <div className="card p-4 mb-6 border-[var(--color-danger)]/30">
-          <div className="flex items-center gap-3">
-            <span className="text-[var(--color-danger)] font-medium">Scan failed:</span>
-            <span className="text-sm text-[var(--color-muted)]">{error}</span>
+        <div className="card p-4 mb-6 border-l-2 border-[var(--color-danger)] animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <span className="text-[var(--color-danger)] text-sm mt-0.5">✕</span>
+            <div>
+              <div className="text-sm font-medium text-white">Scan failed</div>
+              <div className="text-xs text-[var(--color-muted)] mt-1">{error}</div>
+            </div>
+            <button onClick={() => setError(null)} className="ml-auto text-[var(--color-muted)] hover:text-white text-xs">Dismiss</button>
           </div>
         </div>
       )}
 
-      {report ? (
-        <>
+      {report && !scanning && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="card p-6 mb-6">
             <div className="flex items-center gap-6">
               <div className="relative w-24 h-24 flex-shrink-0">
@@ -278,23 +397,25 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-[var(--color-muted)] uppercase tracking-wider mb-1">
+                <div className="text-[11px] text-[var(--color-muted)] font-mono truncate mb-1">
                   {report.projectPath}
                 </div>
                 <div className="text-xl font-semibold text-white mb-1">{report.projectName}</div>
-                <div className="flex items-center gap-4 text-xs text-[var(--color-muted)]">
+                <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
                   <span>{report.totalFindings} findings</span>
-                  <span>·</span>
+                  <span className="w-1 h-1 rounded-full bg-[var(--color-border)]" />
                   <span>{report.durationMs}ms</span>
-                  <span>·</span>
+                  <span className="w-1 h-1 rounded-full bg-[var(--color-border)]" />
                   <span>{new Date(report.timestamp).toLocaleString()}</span>
                 </div>
+                {report.summary && (
+                  <p className="text-xs text-[var(--color-muted)] mt-2 leading-relaxed max-w-lg">{report.summary}</p>
+                )}
               </div>
-              <ShareBadgeButton />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
             {report.categories.map((cat) => {
               const color =
                 cat.severity === "critical" ? "var(--color-danger)" :
@@ -302,17 +423,15 @@ export default function DashboardPage() {
                 cat.severity === "medium" ? "var(--color-accent)" :
                 "var(--color-success)";
               return (
-                <div key={cat.category} className="card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-[var(--color-muted)]">{cat.label}</span>
-                    <span className="text-lg font-bold" style={{ color }}>{cat.score}</span>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    {cat.criticalCount > 0 && <span className="severity-critical text-xs">{cat.criticalCount} critical</span>}
-                    {cat.highCount > 0 && <span className="severity-high text-xs">{cat.highCount} high</span>}
-                    {cat.mediumCount > 0 && <span className="severity-medium text-xs">{cat.mediumCount} medium</span>}
-                    {cat.lowCount > 0 && <span className="severity-low text-xs">{cat.lowCount} low</span>}
-                    {cat.findingCount === 0 && <span className="text-xs text-[var(--color-success)]">No issues</span>}
+                <div key={cat.category} className="card p-3 text-center">
+                  <div className="text-lg font-bold" style={{ color }}>{cat.score}</div>
+                  <div className="text-[11px] text-[var(--color-muted)] mt-0.5">{cat.label}</div>
+                  <div className="text-[10px] text-[var(--color-muted)] mt-1">
+                    {cat.findingCount > 0 ? (
+                      <span>{cat.criticalCount > 0 ? `${cat.criticalCount}C ` : ""}{cat.highCount > 0 ? `${cat.highCount}H ` : ""}{cat.mediumCount > 0 ? `${cat.mediumCount}M ` : ""}{cat.lowCount > 0 ? `${cat.lowCount}L` : ""}</span>
+                    ) : (
+                      <span className="text-[var(--color-success)]">✓ Clean</span>
+                    )}
                   </div>
                 </div>
               );
@@ -325,27 +444,27 @@ export default function DashboardPage() {
               <ScannerSection key={result.category} result={result} />
             ))}
           </div>
-        </>
-      ) : !scanning && !error ? (
-        <div className="card p-12 text-center">
-          <div className="text-4xl mb-4">🛡</div>
-          <h2 className="text-lg font-medium text-white mb-2">Ready to scan</h2>
-          <p className="text-sm text-[var(--color-muted)] mb-4 max-w-md mx-auto">
-            Set the project path above and click "Run Scan" to analyze a project for security, AI safety, code quality, performance, and deployment readiness.
+        </div>
+      )}
+
+      {!report && !scanning && !error && (
+        <div className="card p-16 text-center animate-in fade-in">
+          <div className="text-5xl mb-6 opacity-30">🛡</div>
+          <h2 className="text-xl font-medium text-white mb-3">Ready to scan</h2>
+          <p className="text-sm text-[var(--color-muted)] mb-6 max-w-lg mx-auto leading-relaxed">
+            Enter a project path above and click <strong className="text-white/80">Scan</strong>. 
+            The dashboard will analyze your project for security, AI safety, code quality, performance, and deployment readiness.
           </p>
-          <div className="flex items-center justify-center gap-6 text-xs text-[var(--color-muted)]">
-            <span>Security</span>
-            <span>·</span>
-            <span>AI Safety</span>
-            <span>·</span>
-            <span>Code Quality</span>
-            <span>·</span>
-            <span>Performance</span>
-            <span>·</span>
-            <span>Deployment</span>
+          <div className="flex items-center justify-center gap-8 text-xs text-[var(--color-muted)]">
+            {scanners.map((s) => (
+              <div key={s.id} className="flex flex-col items-center gap-1">
+                <span className="text-base">{scannerIcons[s.id]}</span>
+                <span>{s.label}</span>
+              </div>
+            ))}
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
