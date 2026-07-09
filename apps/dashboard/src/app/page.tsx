@@ -66,7 +66,7 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="font-[family-name:var(--font-inter)]">
+    <div>
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="bg-grid" />
         <div className="orb orb-1" />
@@ -76,7 +76,7 @@ export default function LandingPage() {
       <div className="relative z-10">
         <nav className="fixed top-0 left-0 right-0 z-50 glass-nav h-16 flex items-center">
           <div className="max-w-[1400px] mx-auto px-6 md:px-10 w-full flex items-center justify-between">
-            <a href="#" className="text-sm font-bold tracking-[0.08em] uppercase text-white/90 hover:text-[var(--color-cream)] transition-colors">
+            <a href="#" className="text-sm font-bold tracking-[0.08em] uppercase text-white/90 hover:text-white transition-colors">
               preflight
             </a>
             <div className="flex items-center gap-6">
@@ -104,10 +104,10 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 max-w-[1400px] mx-auto px-6 md:px-10 w-full">
             <div className="md:col-span-7 flex flex-col justify-center">
               <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--color-muted)] border border-[var(--color-border)] rounded-full px-4 py-1.5 mb-8 w-fit">
-                <span className="w-1.5 h-1.5 bg-[var(--color-gold)] rounded-full" />
+                <span className="w-1.5 h-1.5 bg-[var(--color-accent)] rounded-full" />
                 Open source
               </span>
-              <h1 className="text-[clamp(2.8rem,6vw,5rem)] font-bold leading-[0.95] tracking-tighter text-[var(--color-cream)] mb-6 whitespace-pre-line">
+              <h1 className="text-[clamp(2.8rem,6vw,5rem)] font-bold leading-[0.95] tracking-tighter text-white mb-6 whitespace-pre-line">
                 Run any agent.{"\n"}Anywhere.
               </h1>
               <p className="text-base md:text-lg text-[var(--color-muted)] leading-relaxed max-w-[48ch] mb-10">
@@ -116,7 +116,7 @@ export default function LandingPage() {
               <div className="flex items-center gap-4">
                 <Link
                   href="/dashboard"
-                  className="inline-flex items-center px-7 py-3 bg-[var(--color-gold)] text-[var(--color-bg)] text-sm font-semibold rounded-full hover:bg-[var(--color-gold)]/90 transition-all duration-300"
+                  className="inline-flex items-center px-7 py-3 bg-[var(--color-accent)] text-white text-sm font-semibold rounded-full hover:bg-[var(--color-accent-hover)] transition-all duration-300"
                 >
                   Get Started
                 </Link>
@@ -171,7 +171,7 @@ export default function LandingPage() {
         <section id="features" className="py-24 md:py-32">
           <div className="max-w-[1400px] mx-auto px-6 md:px-10">
             <div className="mb-16">
-              <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-[var(--color-cream)] mb-4 whitespace-pre-line">
+              <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-white mb-4 whitespace-pre-line">
                 Everything to run agents{"\n"}in production
               </h2>
               <p className="text-[var(--color-muted)] text-lg leading-relaxed max-w-[55ch]">
@@ -182,7 +182,7 @@ export default function LandingPage() {
               {features.map((f, i) => (
                 <div key={f.title} className={`zoom-card fade-up ${i < 5 ? `fade-delay-${(i % 5) + 1}` : ""}`}>
                   <div className="zoom-card__inner">
-                    <h3 className="text-lg font-semibold text-[var(--color-cream)] mb-2">{f.title}</h3>
+                    <h3 className="text-lg font-semibold text-white mb-2">{f.title}</h3>
                     <p className="text-[var(--color-muted)] text-sm leading-relaxed">{f.desc}</p>
                   </div>
                 </div>
@@ -194,7 +194,7 @@ export default function LandingPage() {
         <section id="architecture" className="py-24 md:py-32 bg-[var(--color-surface)]/30">
           <div className="max-w-[1400px] mx-auto px-6 md:px-10">
             <div className="mb-16">
-              <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-[var(--color-cream)] mb-4">Architecture</h2>
+              <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-white mb-4">Architecture</h2>
               <p className="text-[var(--color-muted)] text-lg leading-relaxed max-w-[60ch]">Layered, replaceable components. Use what you need.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -216,7 +216,7 @@ export default function LandingPage() {
 
         <section id="get-started" className="py-24 md:py-32">
           <div className="max-w-[1400px] mx-auto px-6 md:px-10 text-center">
-            <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-[var(--color-cream)] mb-4">Start building.</h2>
+            <h2 className="text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-white mb-4">Start building.</h2>
             <p className="text-[var(--color-muted)] text-lg mb-10 max-w-[50ch] mx-auto leading-relaxed">
               Clone, install, run. Your first agent in minutes.
             </p>
@@ -231,7 +231,7 @@ export default function LandingPage() {
                 href="https://github.com/marsley01/agent-preflight"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-7 py-3 bg-[var(--color-gold)] text-[var(--color-bg)] text-sm font-semibold rounded-full hover:bg-[var(--color-gold)]/90 transition-all duration-300"
+                className="px-7 py-3 bg-[var(--color-accent)] text-white text-sm font-semibold rounded-full hover:bg-[var(--color-accent-hover)] transition-all duration-300"
               >
                 View on GitHub
               </a>

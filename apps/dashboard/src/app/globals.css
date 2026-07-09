@@ -12,8 +12,6 @@
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
   --color-sidebar: #050505;
-  --color-cream: #fff9cb;
-  --color-gold: #fcaf17;
 }
 
 *,
@@ -23,7 +21,7 @@
 }
 
 ::selection {
-  background-color: var(--color-gold);
+  background-color: var(--color-accent);
   color: var(--color-bg);
 }
 
@@ -112,7 +110,7 @@ body {
 .orb-1 {
   width: 600px;
   height: 600px;
-  background: var(--color-gold);
+  background: var(--color-accent);
   top: -200px;
   right: -200px;
   animation: orb-float 30s ease-in-out infinite;
@@ -206,7 +204,7 @@ body {
 }
 
 .code-block .highlight {
-  color: var(--color-gold);
+  color: var(--color-accent);
 }
 
 @keyframes marquee {
