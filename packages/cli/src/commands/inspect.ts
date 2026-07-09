@@ -90,7 +90,8 @@ export function registerInspectCommand(program: Command, output: OutputManager):
           pending: chalk.yellow,
           failed: chalk.red,
         };
-        const coloredStatus = (statusColor[info.status] ?? chalk.white)(info.status);
+        const status = info.status || "unknown";
+        const coloredStatus = (statusColor[status] ?? chalk.white)(status);
 
         output.raw('');
         output.object({

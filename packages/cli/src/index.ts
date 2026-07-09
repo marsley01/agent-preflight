@@ -1,91 +1,50 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import chalk from 'chalk';
-import { createRequire } from 'module';
+import { Command } from "commander";
+import pc from "picocolors";
+import { scanProject } from "@agent-preflight/scanner";
+import { badgeCommand } from "./commands/badge";
 
-import { getOutput, type OutputMode } from './utils/output.js';
-import { registerInitCommand } from './commands/init.js';
-import { registerDoctorCommand } from './commands/doctor.js';
-import { registerDeployCommand } from './commands/deploy.js';
-import { registerRunCommand } from './commands/run.js';
-import { registerInspectCommand } from './commands/inspect.js';
-import { registerHealthCommand } from './commands/health.js';
-import { registerTraceCommand } from './commands/trace.js';
-import { registerMemoryCommand } from './commands/memory.js';
-import { registerRegistryCommand } from './commands/registry.js';
-import { registerPluginsCommand } from './commands/plugins.js';
-import { registerModelsCommand } from './commands/models.js';
-import { registerProvidersCommand } from './commands/providers.js';
-import { registerEvaluateCommand } from './commands/evaluate.js';
-import { registerBenchmarkCommand } from './commands/benchmark.js';
-import { registerGenerateCommand } from './commands/generate.js';
-import { registerUpgradeCommand } from './commands/upgrade.js';
+const program = new Command();
 
-const __require = createRequire(import.meta.url);
+program
+  .name("preflight")
+  .description("Agent Preflight – Production readiness scanner")
+  .version("0.1.0");
 
-async function getPackageVersion(): Promise<string> {
-  try {
-    const pkg = __require('../package.json');
-    return pkg.version ?? '0.1.0';
-  } catch {
-    return '0.1.0';
-  }
-}
+program
+  .command("check")
+  .description("Run a complete production readiness scan")
+  .argument("[path]", "Project path to scan", ".")
+  .action(async (path: string) => {
+    console.log(pc.bold("\nAgent Preflight — Production Readiness Scan\n"));
+    console.log(pc.dim(`Scanning ${path}...\n`));
 
-async function main() {
-  const version = await getPackageVersion();
-  const output = getOutput({ mode: 'pretty' });
+    try {
+      const report = await scanProject(path);
 
-  const program = new Command();
+      console.log(`  ${pc.green("✓")} Project: ${pc.bold(report.projectName)}`);
+      console.log(`  ${pc.green("✓")} Overall Score: ${pc.bold(String(report.overallScore))}/100`);
+      console.log(`  ${pc.green("✓")} Findings: ${report.totalFindings}`);
+      console.log(`  ${pc.green("✓")} Duration: ${report.durationMs}ms\n`);
 
-  program
-    .name('preflight')
-    .description(chalk.cyan('Enterprise CLI for the AI Agent Operating System'))
-    .version(version, '-v, --version', 'Display the version number')
-    .helpOption('-h, --help', 'Display help information')
-    .hook('preAction', (thisCommand) => {
-      const globalOpts = thisCommand.optsWithGlobals();
-      if (globalOpts.verbose) {
-        output.setMode('pretty');
+      for (const cat of report.categories) {
+        const color = cat.severity === "critical" ? pc.red : cat.severity === "high" ? pc.yellow : cat.severity === "medium" ? pc.cyan : pc.green;
+        console.log(`  ${color(`${cat.label}: ${cat.score}/100`)}  (${cat.findingCount} findings)`);
       }
-      if (globalOpts.output) {
-        output.setMode(globalOpts.output as OutputMode);
+
+      const critical = report.criticalCount;
+      const high = report.highCount;
+      if (critical > 0 || high > 0) {
+        console.log(pc.red(`\n  ⚠ ${critical} critical, ${high} high severity issues found\n`));
+      } else {
+        console.log(pc.green("\n  ✅ No critical or high severity issues\n"));
       }
-    });
-
-  program
-    .option('-c, --config <path>', 'Path to configuration file')
-    .option('--verbose', 'Enable verbose output')
-    .option('-o, --output <mode>', 'Output mode (json, table, pretty)', 'pretty');
-
-  registerInitCommand(program, output);
-  registerDoctorCommand(program, output);
-  registerDeployCommand(program, output);
-  registerRunCommand(program, output);
-  registerInspectCommand(program, output);
-  registerHealthCommand(program, output);
-  registerTraceCommand(program, output);
-  registerMemoryCommand(program, output);
-  registerRegistryCommand(program, output);
-  registerPluginsCommand(program, output);
-  registerModelsCommand(program, output);
-  registerProvidersCommand(program, output);
-  registerEvaluateCommand(program, output);
-  registerBenchmarkCommand(program, output);
-  registerGenerateCommand(program, output);
-  registerUpgradeCommand(program, output);
-
-  program.configureHelp({
-    sortSubcommands: true,
-    showGlobalOptions: true,
+    } catch (err) {
+      console.error(pc.red("Scan failed:"), err);
+      process.exit(1);
+    }
   });
 
-  program.addHelpText(
-    'after',
-    `\n${chalk.gray('Learn more:')} ${chalk.cyan('https://agent-preflight.io/docs')}\n`,
-  );
+program.addCommand(badgeCommand());
 
-  program.parse(process.argv);
-}
-
-main();
+program.parse(process.argv);

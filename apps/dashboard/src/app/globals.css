@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg: #030303;
+  --color-surface: #0a0a0a;
+  --color-border: #1a1a1a;
+  --color-border-hover: #2a2a2a;
+  --color-muted: #666;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-sidebar: #050505;
+}
+
+body {
+  background: var(--color-bg);
+  color: #e5e5e5;
+  font-family: "Geist", system-ui, -apple-system, sans-serif;
+}
+
+.sidebar {
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  transition: border-color 0.2s;
+}
+
+.card:hover {
+  border-color: var(--color-border-hover);
+}
+
+.score-ring {
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: white;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.severity-critical { color: var(--color-danger); }
+.severity-high { color: var(--color-warning); }
+.severity-medium { color: var(--color-accent); }
+.severity-low { color: var(--color-muted); }
