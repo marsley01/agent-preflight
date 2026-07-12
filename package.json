@@ -2,39 +2,13 @@
   "name": "agent-preflight",
   "version": "0.0.0",
   "private": true,
-  "description": "Enterprise AI Agent Operating System — monorepo",
+  "description": "Pre-deploy vulnerability scanner — CLI + web UI",
   "engines": {
     "node": ">=20.0.0"
   },
-  "packageManager": "pnpm@11.10.0",
-  "workspaces": [
-    "packages/**",
-    "apps/*"
-  ],
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,mdx,css,scss,yaml,yml}\" --ignore-path .gitignore",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,mdx,css,scss,yaml,yml}\" --ignore-path .gitignore",
-    "clean": "turbo run clean",
-    "changeset": "changeset",
-    "changeset:version": "changeset version",
-    "release": "turbo run build --filter=!./apps/* && changeset publish",
-    "docs": "typedoc --options typedoc.json",
-    "prepare": "node -e \"try { require('husky').install() } catch {}\"",
-    "typecheck": "turbo run typecheck"
-  },
-  "devDependencies": {
-    "@changesets/cli": "^2.27.0",
-    "@types/node": "^20.0.0",
-    "eslint": "^9.0.0",
-    "next": "16.2.10",
-    "prettier": "^3.0.0",
-    "turbo": "^2.0.0",
-    "typescript": "^5.5.0",
-    "vitest": "^4.1.10"
+    "build": "cd apps/landing && npm install && npm run build",
+    "dev": "cd apps/landing && npm run dev"
   },
   "repository": {
     "type": "git",
@@ -44,6 +18,5 @@
     "url": "https://github.com/anomalyco/agent-preflight/issues"
   },
   "homepage": "https://github.com/anomalyco/agent-preflight#readme",
-  "author": "Anomaly Co.",
   "license": "MIT"
 }

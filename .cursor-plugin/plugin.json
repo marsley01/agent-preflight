@@ -1,8 +1,0 @@
-{
-  "name": "agent-preflight",
-  "version": "1.0.0",
-  "description": "Pre-deploy checklists for AI coding agents. Catches security holes, broken auth, payment bugs, and TypeScript errors before they hit production.",
-  "author": "marsley01",
-  "license": "MIT",
-  "repository": "https://github.com/marsley01/agent-preflight"
-}
