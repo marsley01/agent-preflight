@@ -24,7 +24,11 @@ jobs:
       - name: Run preflight scan
         id: scan
         run: |
-          npx @agent-preflight/cli scan . --json > scan-results.json 2>&1
+          cd packages/cli
+          npm install
+          npm run build
+          node dist/index.js scan ../.. --json > ../../scan-results.json 2>&1
+          cd ../..
           echo "results<<EOF" >> $GITHUB_OUTPUT
           cat scan-results.json >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
