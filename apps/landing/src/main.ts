@@ -247,8 +247,10 @@ function ScanBox(): HTMLElement {
     } catch (err) {
       if (err instanceof ScanAbortedError) {
         scanError = "Scan cancelled.";
-      } else if ((err as any)?.status === 403 || (err as any)?.status === 429) {
+      } else if ((err as any)?.status === 429) {
         scanError = "GitHub API rate limit reached. Add a fine-grained personal access token below for 5,000 requests/hour, or use \u2018npx @preflight-agent/cli scan\u2019 locally.";
+      } else if ((err as any)?.status === 401) {
+        scanError = "GitHub API authentication error: Invalid token or insufficient permissions. Check your token.";
       } else {
         scanError = "Something went wrong. Check the URL and try again.";
       }
@@ -509,20 +511,19 @@ function ResultsSection(): HTMLElement | null {
 }
 
 function renderResults() {
-  const container = document.getElementById("scan-container")!;
-  container.innerHTML = ""; // Clear existing
+  const existing = document.getElementById("results");
+  if (existing) existing.remove();
 
-  if (scanning) {
-    container.appendChild(ScanProgressSection());
-  } else if (scanError) {
-    const card = el("div", { class: "error-card" });
-    card.appendChild(el("div", { class: "error-title" }, ["Scan failed"]));
-    card.appendChild(el("div", { class: "error-desc" }, [scanError]));
-    container.appendChild(card);
-  } else if (scanReport) {
-    container.appendChild(ResultsContent(scanReport));
-  } else {
-    container.appendChild(ScanBoxForm());
+  const elSec = ResultsSection();
+  if (elSec) {
+    elSec.id = "results";
+    const getStarted = document.getElementById("get-started");
+    if (getStarted) {
+      getStarted.parentNode!.insertBefore(elSec, getStarted);
+    } else {
+      APP.appendChild(elSec);
+    }
+    if (scanning) elSec.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 

@@ -95,11 +95,20 @@ class ScanContext {
       if (res.status === 403 || res.status === 429) {
         const remaining = res.headers.get('X-RateLimit-Remaining');
         const reset = res.headers.get('X-RateLimit-Reset');
-        throw Object.assign(new Error('GitHub API rate limit reached'), {
-          status: res.status,
-          remaining,
-          reset: reset ? parseInt(reset) * 1000 : null,
-        });
+        
+        // Distinguish between Rate Limit and Authentication error
+        if (remaining === '0') {
+          throw Object.assign(new Error('GitHub API rate limit reached'), {
+            status: 429, // Treat as rate limit
+            remaining,
+            reset: reset ? parseInt(reset) * 1000 : null,
+          });
+        } else {
+          throw Object.assign(new Error('GitHub API authentication error'), {
+            status: 401, // Treat as auth error
+            message: 'Invalid token or insufficient permissions.',
+          });
+        }
       }
 
       return res;
