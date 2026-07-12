@@ -1,6 +1,5 @@
 {
-  "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @agent-preflight/scanner build && cd apps/dashboard && npx next build",
-  "outputDirectory": "apps/dashboard/.next",
-  "framework": "nextjs"
+  "buildCommand": "cd apps/landing && npm install && npm run build",
+  "outputDirectory": "apps/landing/dist",
+  "framework": "static"
 }
