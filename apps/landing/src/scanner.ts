@@ -446,7 +446,23 @@ async function runWebChecks(owner: string, repo: string): Promise<ScanCheck[]> {
   return results;
 }
 
-export async function scanGitHubRepo(input: string): Promise<ScanReport> {
+export const SCAN_STAGES = [
+  'Fetching repository files',
+  'Security',
+  'Authentication',
+  'Payments',
+  'Database',
+  'API & Validation',
+  'Web Security',
+  'Vulnerabilities',
+] as const;
+
+export type ScanProgressHandler = (stage: string, completed: number, total: number) => void;
+
+export async function scanGitHubRepo(
+  input: string,
+  onProgress?: ScanProgressHandler,
+): Promise<ScanReport> {
   const parsed = parseGitHubUrl(input);
   if (!parsed) {
     return {
@@ -470,15 +486,29 @@ export async function scanGitHubRepo(input: string): Promise<ScanReport> {
     };
   }
 
+  const total = SCAN_STAGES.length;
+  onProgress?.('Fetching repository files', 0, total);
   const allFiles = await listFiles(owner, repo);
+
+  const steps: [string, () => Promise<ScanCheck[]>][] = [
+    ['Security', () => runSecurityChecks(owner, repo)],
+    ['Authentication', () => runAuthChecks(owner, repo)],
+    ['Payments', () => runPaymentChecks(owner, repo)],
+    ['Database', () => runDatabaseChecks(owner, repo)],
+    ['API & Validation', () => runApiChecks(owner, repo)],
+    ['Web Security', () => runWebChecks(owner, repo)],
+    ['Vulnerabilities', () => runVulnerabilityChecks(owner, repo, allFiles)],
+  ];
+
   const categories: ScanCategory[] = [];
-  categories.push({ name: 'Security', checks: await runSecurityChecks(owner, repo) });
-  categories.push({ name: 'Authentication', checks: await runAuthChecks(owner, repo) });
-  categories.push({ name: 'Payments', checks: await runPaymentChecks(owner, repo) });
-  categories.push({ name: 'Database', checks: await runDatabaseChecks(owner, repo) });
-  categories.push({ name: 'API & Validation', checks: await runApiChecks(owner, repo) });
-  categories.push({ name: 'Web Security', checks: await runWebChecks(owner, repo) });
-  categories.push({ name: 'Vulnerabilities', checks: await runVulnerabilityChecks(owner, repo, allFiles) });
+  let completed = 1;
+  for (const [name, fn] of steps) {
+    onProgress?.(name, completed, total);
+    const checks = await fn();
+    categories.push({ name, checks });
+    completed++;
+  }
+  onProgress?.('Done', total, total);
 
   return { repo: `${owner}/${repo}`, categories };
 }

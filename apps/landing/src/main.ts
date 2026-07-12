@@ -1,16 +1,17 @@
 import "./style.css";
-import { scanGitHubRepo, type ScanReport } from "./scanner";
+import { scanGitHubRepo, SCAN_STAGES, type ScanReport, type ScanCheck } from "./scanner";
 
 const APP = document.getElementById("app")!;
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
-  children: (string | HTMLElement)[] = [],
+  children: (string | Node | null)[] = [],
 ): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
   for (const c of children) {
+    if (c === null) continue;
     if (typeof c === "string") e.appendChild(document.createTextNode(c));
     else e.appendChild(c);
   }
@@ -21,10 +22,48 @@ function section(id: string, className = "", ...children: HTMLElement[]): HTMLEl
   return el("section", { id, class: className }, children);
 }
 
+// --- Line icons (no emojis) ---
+function icon(name: string): HTMLElement {
+  const span = el("span", { class: "icon" });
+  const paths: Record<string, string> = {
+    key: '<path d="M14 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path d="M12.4 7H19M16 10.5V13M18 10.5V16a1 1 0 0 1-1 1h-1.5"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    card: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18M7 14.5h4"/>',
+    shield: '<path d="M12 3l7 3v5c0 4.2-3 7.3-7 8-4-0.7-7-3.8-7-8V6z"/>',
+    database: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3 3 7 3s7-1.3 7-3v-6"/>',
+    form: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    ban: '<circle cx="12" cy="12" r="8"/><path d="M6 6l12 12"/>',
+    link: '<path d="M9 15l6-6M10.5 7l1-1a3.5 3.5 0 0 1 5 5l-1 1M13.5 17l-1 1a3.5 3.5 0 0 1-5-5l1-1"/>',
+    bolt: '<path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13z"/>',
+    clipboard: '<rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 9h6M9 13h6M9 17h4"/>',
+    globe: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/>',
+    check: '<path d="M5 12.5l4 4 10-10"/>',
+  };
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? ""}</svg>`;
+  return span;
+}
+
+function statusIcon(status: ScanCheck["status"]): HTMLElement {
+  const span = el("span", { class: "status-icon" });
+  const fills: Record<ScanCheck["status"], string> = {
+    pass: "#34c759",
+    fail: "#ff3b30",
+    warn: "#ff9500",
+  };
+  const inner: Record<ScanCheck["status"], string> = {
+    pass: '<path d="M4.5 8.2l2.2 2.2 4.8-4.8" />',
+    fail: '<path d="M5.5 5.5l5 5M10.5 5.5l-5 5" />',
+    warn: '<path d="M8 4.2v5" /><circle cx="8" cy="11.4" r="0.95" fill="#fff" stroke="none" />',
+  };
+  span.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="${fills[status]}"/><g stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none">${inner[status]}</g></svg>`;
+  return span;
+}
+
 // --- State ---
 let scanReport: ScanReport | null = null;
 let scanning = false;
 let scanError: string | null = null;
+let scanProgress: { stage: string; completed: number; total: number } | null = null;
 
 function Navbar(): HTMLElement {
   const nav = el("nav", { class: "fixed top-0 left-0 right-0 z-50 glass-nav h-16 flex items-center" });
@@ -32,13 +71,13 @@ function Navbar(): HTMLElement {
     class: "max-w-[1400px] mx-auto px-6 md:px-10 w-full flex items-center justify-between",
   });
 
-  const logo = el("a", { href: "#", class: "text-sm font-bold tracking-[0.08em] uppercase text-white/90 hover:text-gold transition-colors" }, ["preflight"]);
+  const logo = el("a", { href: "#", class: "text-[15px] font-semibold tracking-tight text-[var(--color-text)] hover:opacity-70 transition-opacity" }, ["preflight"]);
 
   const links = el("div", { class: "flex items-center gap-6" });
   const btn = el("a", {
     href: "https://github.com/marsley01/agent-preflight",
     target: "_blank",
-    class: "text-[12px] font-medium px-5 py-2 rounded-full border border-rock-border text-muted hover:text-white hover:border-white/30 transition-all",
+    class: "btn-secondary text-[13px] font-medium px-5 py-2 rounded-full",
   }, ["GitHub"]);
 
   links.appendChild(btn);
@@ -58,31 +97,38 @@ function Hero(): HTMLElement {
   const left = el("div", { class: "md:col-span-7 flex flex-col justify-center" });
 
   const h1 = el("h1", {
-    class: "text-[clamp(2rem,5vw,4rem)] font-bold leading-[0.95] tracking-tighter text-cream mb-4",
-  }, ["Paste your GitHub repo.\nSee what\u2019s broken."]);
+    class: "text-[clamp(2.1rem,5vw,3.6rem)] font-bold leading-[1.02] tracking-[-0.03em] text-[var(--color-text)] mb-5",
+  }, ["Paste your GitHub repo.\nSee what’s broken."]);
 
   const p = el("p", {
-    class: "text-base md:text-lg text-muted leading-relaxed max-w-[50ch] mb-8",
-  }, ["AI coding tools are incredible. But they make the same mistakes every time \u2014 exposed keys, broken payments, missing security. Paste any public repo URL and we\u2019ll check it for you."]);
+    class: "text-[17px] text-[var(--color-text-2)] leading-relaxed max-w-[52ch] mb-9",
+  }, ["AI coding tools are incredible — but they repeat the same mistakes. Exposed keys, broken payments, missing security. Paste any public repo URL and we’ll check it for you."]);
 
   left.appendChild(h1);
   left.appendChild(p);
   left.appendChild(ScanBox());
 
   const right = el("div", { class: "md:col-span-5 flex items-center justify-center mt-12 md:mt-0" });
-  const outputBlock = el("pre", {
-    class: "text-[11px] md:text-[12px] leading-[1.5] text-muted font-mono bg-rock-light/40 border border-rock-border rounded-2xl p-5 md:p-6 w-full overflow-hidden select-none",
-  }, [`Scan runs in your browser.
-Nothing is uploaded.
+  const panel = el("div", {
+    class: "w-full rounded-[22px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] p-6 md:p-7",
+  });
+  const panelTitle = el("div", { class: "text-[13px] font-semibold text-[var(--color-text)] mb-4 tracking-tight" }, ["What we look for"]);
+  const list = el("ul", { class: "hero-list" });
+  const checks = [
+    "Exposed API keys",
+    "Broken authentication",
+    "Payment webhooks",
+    "Row-level security",
+    "Input validation",
+  ];
+  for (const c of checks) {
+    const li = el("li", {}, [el("span", { class: "tick" }, [icon("check")]), document.createTextNode(c)]);
+    list.appendChild(li);
+  }
+  panel.appendChild(panelTitle);
+  panel.appendChild(list);
+  right.appendChild(panel);
 
-Checks for:
-  \u2705 Exposed API keys
-  \u2705 Broken auth
-  \u2705 Payment webhooks
-  \u2705 RLS policies
-  \u2705 Input validation`]);
-
-  right.appendChild(outputBlock);
   grid.appendChild(left);
   grid.appendChild(right);
   sec.appendChild(grid);
@@ -90,7 +136,7 @@ Checks for:
 }
 
 function ScanBox(): HTMLElement {
-  const container = el("div", { class: "w-full max-w-[550px]" });
+  const container = el("div", { class: "w-full max-w-[560px]" });
 
   const inputRow = el("div", { class: "flex items-center gap-3" });
 
@@ -98,12 +144,12 @@ function ScanBox(): HTMLElement {
     id: "repo-input",
     type: "text",
     placeholder: "https://github.com/user/repo",
-    class: "flex-1 bg-black/50 border border-rock-border rounded-xl px-4 py-3 text-sm text-white placeholder:text-muted/50 focus:outline-none focus:border-gold/50 transition-colors",
+    class: "field flex-1 px-4 py-3.5 text-[15px]",
   }) as HTMLInputElement;
 
   const scanBtn = el("button", {
     id: "scan-btn",
-    class: "px-6 py-3 bg-gold text-rock text-sm font-semibold rounded-xl hover:bg-gold/90 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed shrink-0",
+    class: "btn-primary px-7 py-3.5 text-[15px] shrink-0",
   }, ["Scan"]) as HTMLButtonElement;
 
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") scanBtn.click(); });
@@ -114,16 +160,21 @@ function ScanBox(): HTMLElement {
     scanning = true;
     scanError = null;
     scanReport = null;
+    scanProgress = { stage: "Starting…", completed: 0, total: SCAN_STAGES.length };
     scanBtn.disabled = true;
-    scanBtn.textContent = "Scanning\u2026";
+    scanBtn.textContent = "Scanning";
     renderResults();
 
     try {
-      scanReport = await scanGitHubRepo(url);
-    } catch (err) {
+      scanReport = await scanGitHubRepo(url, (stage, completed, total) => {
+        scanProgress = { stage, completed, total };
+        renderResults();
+      });
+    } catch {
       scanError = "Something went wrong. Check the URL and try again.";
     } finally {
       scanning = false;
+      scanProgress = null;
       scanBtn.disabled = false;
       scanBtn.textContent = "Scan";
       renderResults();
@@ -134,61 +185,80 @@ function ScanBox(): HTMLElement {
   inputRow.appendChild(scanBtn);
   container.appendChild(inputRow);
 
-  const note = el("p", { class: "text-[11px] text-muted/50 mt-2" }, ["Public repos only. All scanning happens in your browser \u2014 nothing is stored."]);
+  const note = el("p", { class: "text-[12px] text-[var(--color-text-3)] mt-3" }, ["Public repos only. Everything runs in your browser — nothing is uploaded or stored."]);
   container.appendChild(note);
 
   return container;
 }
 
-function scanIcon(status: string) {
-  if (status === "pass") return "\u2705";
-  if (status === "fail") return "\u274C";
-  return "\u26A0\uFE0F";
+function ScanProgressSection(): HTMLElement {
+  const sec = section("results", "py-16 md:py-24");
+
+  const stages = SCAN_STAGES;
+  const completed = scanProgress?.completed ?? 0;
+  const total = scanProgress?.total ?? stages.length;
+  const pct = Math.round((completed / total) * 100);
+
+  const card = el("div", { class: "scan-card" });
+
+  const head = el("div", { class: "scan-head" });
+  head.appendChild(el("div", { class: "spinner" }));
+  const headText = el("div", {});
+  headText.appendChild(el("div", { class: "scan-title" }, ["Scanning repository"]));
+  headText.appendChild(el("div", { class: "scan-sub" }, [
+    "Checking ",
+    el("b", {}, [scanProgress?.stage ?? ""]),
+    ` · step ${Math.min(completed + (completed < total ? 1 : 0), total)} of ${total}`,
+  ]));
+  head.appendChild(headText);
+  card.appendChild(head);
+
+  const bar = el("div", { class: "sp-bar" });
+  const fill = el("div", { class: "sp-bar-fill" });
+  fill.setAttribute("style", `width: ${pct}%`);
+  bar.appendChild(fill);
+  card.appendChild(bar);
+
+  const ul = el("ul", { class: "sp-steps" });
+  stages.forEach((stage, i) => {
+    const state = i < completed ? "done" : i === completed ? "active" : "pending";
+    const row = el("li", { class: `sp-step ${state}` });
+    const dot = el("span", { class: "sp-dot" });
+    if (state === "active") dot.appendChild(el("span", { class: "spinner-sm" }));
+    row.appendChild(dot);
+    row.appendChild(document.createTextNode(stage));
+    ul.appendChild(row);
+  });
+  card.appendChild(ul);
+
+  sec.appendChild(card);
+  return sec;
 }
 
 function ResultsSection(): HTMLElement | null {
   if (!scanReport && !scanning && !scanError) return null;
 
-  const sec = section("results", "py-16 md:py-24 bg-rock-light/30");
+  const sec = section("results", "py-16 md:py-24");
 
-  const inner = el("div", {
-    class: "max-w-[900px] mx-auto px-6 md:px-10",
-  });
-
-  // Error state
-  if (scanError) {
-    const errorCard = el("div", { class: "zoom-card fade-up visible" });
-    const errorInner = el("div", { class: "zoom-card__inner" });
-    const icon = el("div", { class: "text-2xl mb-2" }, ["\u274C"]);
-    const title = el("h3", { class: "text-lg font-semibold text-cream mb-2" }, ["Scan failed"]);
-    const desc = el("p", { class: "text-muted text-sm" }, [scanError]);
-    errorInner.appendChild(icon);
-    errorInner.appendChild(title);
-    errorInner.appendChild(desc);
-    errorCard.appendChild(errorInner);
-    inner.appendChild(errorCard);
-    sec.appendChild(inner);
+  // Error
+  if (scanError && !scanning) {
+    const card = el("div", { class: "error-card" });
+    card.appendChild(el("div", { class: "error-title" }, ["Scan failed"]));
+    card.appendChild(el("div", { class: "error-desc" }, [scanError]));
+    sec.appendChild(card);
     return sec;
   }
 
-  // Loading state
-  if (scanning) {
-    const loadingCard = el("div", { class: "card p-8 text-center" });
-    const spinner = el("div", { class: "inline-block w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin mb-4" });
-    const loadingText = el("p", { class: "text-muted text-sm" }, ["Scanning repository\u2026"]);
-    loadingCard.appendChild(spinner);
-    loadingCard.appendChild(loadingText);
-    inner.appendChild(loadingCard);
-    sec.appendChild(inner);
-    return sec;
-  }
+  // Progress
+  if (scanning) return ScanProgressSection();
 
-  // Results
   if (!scanReport) return null;
 
-  const header = el("div", { class: "mb-8 text-center" });
+  const inner = el("div", { class: "max-w-[900px] mx-auto px-6 md:px-10" });
+
+  const header = el("div", { class: "mb-10 text-center" });
   const h2 = el("h2", {
-    class: "text-[clamp(1.25rem,2vw,1.75rem)] font-bold tracking-tight text-cream mb-2",
+    class: "text-[clamp(1.3rem,2vw,1.8rem)] font-bold tracking-[-0.02em] text-[var(--color-text)] mb-4",
   }, [`Scan results: ${scanReport.repo}`]);
 
   let total = 0;
@@ -203,61 +273,47 @@ function ResultsSection(): HTMLElement | null {
   }
 
   const score = total > 0 ? Math.round((passed / total) * 100) : 0;
-  const scoreColor = score >= 80 ? "text-green-400" : score >= 50 ? "text-yellow-400" : "text-red-400";
+  const scoreColor = score >= 80 ? "var(--color-green)" : score >= 50 ? "var(--color-orange)" : "var(--color-red)";
 
-  const scoreRow = el("div", { class: "flex items-center justify-center gap-4 mb-8" });
-  const scoreEl = el("span", { class: `text-3xl font-bold ${scoreColor}` }, [`${score}%`]);
-  const details = el("span", { class: "text-muted text-sm" }, [`${passed}/${total} passed`]);
-  scoreRow.appendChild(scoreEl);
-  scoreRow.appendChild(details);
+  const pill = el("div", { class: "score-pill", style: `background: ${scoreColor}14; color: ${scoreColor}` });
+  pill.appendChild(el("span", { class: "score-num" }, [`${score}%`]));
+  pill.appendChild(el("span", { class: "score-den" }, [`${passed}/${total} passed`]));
   header.appendChild(h2);
-  header.appendChild(scoreRow);
+  header.appendChild(pill);
   inner.appendChild(header);
 
-  const resultsContainer = el("div", { class: "space-y-4 max-w-[700px] mx-auto" });
-
+  const container = el("div", { class: "space-y-4 max-w-[700px] mx-auto" });
   for (const cat of scanReport.categories) {
     if (cat.checks.length === 0) continue;
 
-    const card = el("div", { class: "zoom-card fade-up visible" });
-    const cardInner = el("div", { class: "zoom-card__inner" });
+    const card = el("div", { class: "cat-card" });
+    const cardInner = el("div", { class: "cat-card__inner" });
 
-    const catHeader = el("div", { class: "flex items-center gap-2 mb-3" });
-    const catTitle = el("h3", { class: "text-sm font-semibold text-cream" }, [cat.name]);
-    catHeader.appendChild(catTitle);
+    const catHeader = el("div", { class: "cat-title" });
+    catHeader.appendChild(document.createTextNode(cat.name));
 
     const catFails = cat.checks.filter(c => c.status === "fail").length;
     if (catFails > 0) {
-      const badge = el("span", { class: "text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 ml-2" }, [`${catFails} issue${catFails > 1 ? "s" : ""}`]);
-      catHeader.appendChild(badge);
+      catHeader.appendChild(el("span", { class: "badge" }, [`${catFails} issue${catFails > 1 ? "s" : ""}`]));
     }
-
     cardInner.appendChild(catHeader);
 
-    const list = el("div", { class: "space-y-1.5" });
     for (const check of cat.checks) {
-      const row = el("div", { class: "flex items-start gap-2 text-sm" });
-      const icon = el("span", { class: "shrink-0 mt-0.5 text-xs" }, [scanIcon(check.status)]);
-      const msg = el("span", {
-        class: check.status === "pass" ? "text-green-400/80" : check.status === "fail" ? "text-red-400/80" : "text-yellow-400/80",
-      }, [check.message]);
-      row.appendChild(icon);
+      const row = el("div", { class: "result-row" });
+      row.appendChild(statusIcon(check.status));
+      const msg = el("span", { class: "result-msg" }, [check.message]);
       row.appendChild(msg);
-
       if (check.file) {
-        const loc = el("span", { class: "text-muted/50 text-[10px] ml-1" }, [`(${check.file}${check.line ? ":" + check.line : ""})`]);
-        row.appendChild(loc);
+        row.appendChild(el("span", { class: "result-loc" }, [`(${check.file}${check.line ? ":" + check.line : ""})`]));
       }
-
-      list.appendChild(row);
+      cardInner.appendChild(row);
     }
 
-    cardInner.appendChild(list);
     card.appendChild(cardInner);
-    resultsContainer.appendChild(card);
+    container.appendChild(card);
   }
 
-  inner.appendChild(resultsContainer);
+  inner.appendChild(container);
   sec.appendChild(inner);
   return sec;
 }
@@ -266,55 +322,49 @@ function renderResults() {
   const existing = document.getElementById("results");
   if (existing) existing.remove();
 
-  const el = ResultsSection();
-  if (el) {
-    el.id = "results";
+  const elSec = ResultsSection();
+  if (elSec) {
+    elSec.id = "results";
     const getStarted = document.getElementById("get-started");
     if (getStarted) {
-      getStarted.parentNode!.insertBefore(el, getStarted);
+      getStarted.parentNode!.insertBefore(elSec, getStarted);
     } else {
-      APP.appendChild(el);
+      APP.appendChild(elSec);
     }
-    // Scroll to results
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (scanning) elSec.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
 function Problem(): HTMLElement {
-  const sec = section("problem", "py-24 md:py-32 border-t border-rock-border");
+  const sec = section("problem", "py-24 md:py-32 border-t border-[var(--color-border)]");
 
-  const inner = el("div", {
-    class: "max-w-[1400px] mx-auto px-6 md:px-10",
-  });
+  const inner = el("div", { class: "max-w-[1400px] mx-auto px-6 md:px-10" });
 
   const h2 = el("h2", {
-    class: "text-[clamp(1.5rem,2.5vw,2.25rem)] font-bold tracking-tight text-cream mb-4 text-center",
+    class: "text-[clamp(1.6rem,2.5vw,2.3rem)] font-bold tracking-[-0.02em] text-[var(--color-text)] mb-4 text-center",
   }, ["AI writes fast. But it forgets things."]);
 
   const sub = el("p", {
-    class: "text-muted text-lg text-center max-w-[60ch] mx-auto mb-16 leading-relaxed",
+    class: "text-[var(--color-text-2)] text-[17px] text-center max-w-[60ch] mx-auto mb-16 leading-relaxed",
   }, ["You use Cursor, Claude, or Copilot to ship faster than ever. But AI agents consistently miss the same safety checks."]);
 
   const cards = el("div", { class: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[1000px] mx-auto" });
 
   const items = [
-    { icon: "\uD83D\uDD11", title: "Exposed secrets", desc: "API keys and passwords left in code that anyone can steal." },
-    { icon: "\uD83D\uDCB3", title: "Broken payments", desc: "Webhooks without signature checks \u2014 anyone can fake a payment." },
-    { icon: "\uD83D\uDD10", title: "Missing auth", desc: "Pages and APIs that should be private but aren\u2019t." },
-    { icon: "\uD83D\uDEE1\uFE0F", title: "Open databases", desc: "Tables without row-level security \u2014 data fully exposed." },
-    { icon: "\uD83D\uDCE6", title: "Unchecked inputs", desc: "User data that\u2019s never validated \u2014 a recipe for crashes." },
-    { icon: "\uD83D\uDEAB", title: "No rate limits", desc: "APIs with no protection \u2014 one bad script can take you down." },
+    { icon: "key", title: "Exposed secrets", desc: "API keys and passwords left in code that anyone can steal." },
+    { icon: "card", title: "Broken payments", desc: "Webhooks without signature checks — anyone can fake a payment." },
+    { icon: "shield", title: "Missing auth", desc: "Pages and APIs that should be private but aren’t." },
+    { icon: "database", title: "Open databases", desc: "Tables without row-level security — data fully exposed." },
+    { icon: "form", title: "Unchecked inputs", desc: "User data that’s never validated — a recipe for crashes." },
+    { icon: "ban", title: "No rate limits", desc: "APIs with no protection — one bad script can take you down." },
   ];
 
   for (const item of items) {
     const card = el("div", { class: "zoom-card fade-up text-center" });
     const innerCard = el("div", { class: "zoom-card__inner" });
-    const iconEl = el("div", { class: "text-3xl mb-3" }, [item.icon]);
-    const title = el("h3", { class: "text-lg font-semibold text-cream mb-2" }, [item.title]);
-    const desc = el("p", { class: "text-muted text-sm leading-relaxed" }, [item.desc]);
-    innerCard.appendChild(iconEl);
-    innerCard.appendChild(title);
-    innerCard.appendChild(desc);
+    innerCard.appendChild(icon(item.icon));
+    innerCard.appendChild(el("h3", { class: "text-[17px] font-semibold text-[var(--color-text)] mt-4 mb-2" }, [item.title]));
+    innerCard.appendChild(el("p", { class: "text-[var(--color-text-2)] text-[14px] leading-relaxed" }, [item.desc]));
     card.appendChild(innerCard);
     cards.appendChild(card);
   }
@@ -327,35 +377,29 @@ function Problem(): HTMLElement {
 }
 
 function HowItWorks(): HTMLElement {
-  const sec = section("how-it-works", "py-24 md:py-32 bg-rock-light/30");
+  const sec = section("how-it-works", "py-24 md:py-32 bg-[var(--color-surface-2)]");
 
-  const inner = el("div", {
-    class: "max-w-[1400px] mx-auto px-6 md:px-10",
-  });
+  const inner = el("div", { class: "max-w-[1400px] mx-auto px-6 md:px-10" });
 
   const h2 = el("h2", {
-    class: "text-[clamp(1.5rem,2.5vw,2.25rem)] font-bold tracking-tight text-cream mb-16 text-center",
+    class: "text-[clamp(1.6rem,2.5vw,2.3rem)] font-bold tracking-[-0.02em] text-[var(--color-text)] mb-16 text-center",
   }, ["How it works"]);
 
   const steps = el("div", { class: "grid grid-cols-1 md:grid-cols-3 gap-8 max-w-[1000px] mx-auto" });
 
   const stepData = [
-    { num: "01", icon: "\uD83D\uDCE6", title: "Paste a repo URL", desc: "Any public GitHub repo. Yours, your team\u2019s, or an open-source project you\u2019re contributing to." },
-    { num: "02", icon: "\u26A1", title: "We scan it instantly", desc: "All checks run in your browser. Nothing is uploaded or stored \u2014 your code never leaves your computer." },
-    { num: "03", icon: "\uD83D\uDCCB", title: "Get your report", desc: "Green checks mean you\u2019re good. Red crosses show exactly what to fix, with file names and line numbers." },
+    { num: "01", icon: "link", title: "Paste a repo URL", desc: "Any public GitHub repo. Yours, your team’s, or an open-source project." },
+    { num: "02", icon: "bolt", title: "We scan it instantly", desc: "All checks run in your browser. Nothing is uploaded or stored." },
+    { num: "03", icon: "clipboard", title: "Get your report", desc: "Green checks mean you’re good. Red shows exactly what to fix, with file and line." },
   ];
 
   for (const step of stepData) {
     const card = el("div", { class: "zoom-card fade-up" });
     const innerCard = el("div", { class: "zoom-card__inner" });
-    const num = el("div", { class: "text-[11px] uppercase tracking-[0.12em] text-gold mb-2" }, [step.num]);
-    const iconEl = el("div", { class: "text-3xl mb-3" }, [step.icon]);
-    const title = el("h3", { class: "text-lg font-semibold text-cream mb-2" }, [step.title]);
-    const desc = el("p", { class: "text-muted text-sm leading-relaxed" }, [step.desc]);
-    innerCard.appendChild(num);
-    innerCard.appendChild(iconEl);
-    innerCard.appendChild(title);
-    innerCard.appendChild(desc);
+    innerCard.appendChild(el("div", { class: "text-[11px] uppercase tracking-[0.14em] font-semibold text-[var(--color-accent)] mb-3" }, [step.num]));
+    innerCard.appendChild(icon(step.icon));
+    innerCard.appendChild(el("h3", { class: "text-[17px] font-semibold text-[var(--color-text)] mt-3 mb-2" }, [step.title]));
+    innerCard.appendChild(el("p", { class: "text-[var(--color-text-2)] text-[14px] leading-relaxed" }, [step.desc]));
     card.appendChild(innerCard);
     steps.appendChild(card);
   }
@@ -369,39 +413,35 @@ function HowItWorks(): HTMLElement {
 function WhatWeCheck(): HTMLElement {
   const sec = section("checks", "py-24 md:py-32");
 
-  const inner = el("div", {
-    class: "max-w-[1400px] mx-auto px-6 md:px-10",
-  });
+  const inner = el("div", { class: "max-w-[1400px] mx-auto px-6 md:px-10" });
 
   const h2 = el("h2", {
-    class: "text-[clamp(1.5rem,2.5vw,2.25rem)] font-bold tracking-tight text-cream mb-4 text-center",
+    class: "text-[clamp(1.6rem,2.5vw,2.3rem)] font-bold tracking-[-0.02em] text-[var(--color-text)] mb-4 text-center",
   }, ["What we check"]);
 
   const categories = el("div", { class: "grid grid-cols-1 md:grid-cols-2 gap-6 max-w-[900px] mx-auto" });
 
   const cats = [
-    { icon: "\uD83D\uDEE1\uFE0F", title: "Security", checks: ["API keys that should never be public", ".env files that aren\u2019t protected", "Secrets in client-side code"] },
-    { icon: "\uD83D\uDD10", title: "Auth", checks: ["Pages that should require login but don\u2019t", "Missing auth middleware", "API routes accessible without permission"] },
-    { icon: "\uD83D\uDCB3", title: "Payments", checks: ["Webhooks without signature verification", "No error handling on payment routes", "No idempotency keys"] },
-    { icon: "\uD83D\uDCCA", title: "Database", checks: ["Tables without row-level security", "Database URLs not configured", "SQL migration safety"] },
-    { icon: "\uD83D\uDCE6", title: "API", checks: ["User inputs accepted without validation", "Missing rate limiting", "No CORS or security headers"] },
-    { icon: "\uD83D\uDCF6", title: "Web", checks: ["Missing CSP headers", "No clickjacking protection", "Cookie security flags"] },
+    { icon: "shield", title: "Security", checks: ["API keys that should never be public", ".env files that aren’t protected", "Secrets in client-side code"] },
+    { icon: "lock", title: "Auth", checks: ["Pages that should require login but don’t", "Missing auth middleware", "API routes accessible without permission"] },
+    { icon: "card", title: "Payments", checks: ["Webhooks without signature verification", "No error handling on payment routes", "No idempotency keys"] },
+    { icon: "database", title: "Database", checks: ["Tables without row-level security", "Database URLs not configured", "SQL migration safety"] },
+    { icon: "form", title: "API", checks: ["User inputs accepted without validation", "Missing rate limiting", "No CORS or security headers"] },
+    { icon: "globe", title: "Web", checks: ["Missing CSP headers", "No clickjacking protection", "Cookie security flags"] },
   ];
 
   for (const cat of cats) {
     const card = el("div", { class: "zoom-card fade-up" });
     const innerCard = el("div", { class: "zoom-card__inner" });
     const header = el("div", { class: "flex items-center gap-3 mb-4" });
-    const iconEl = el("span", { class: "text-2xl" }, [cat.icon]);
-    const title = el("h3", { class: "text-lg font-semibold text-cream" }, [cat.title]);
-    header.appendChild(iconEl);
-    header.appendChild(title);
+    header.appendChild(icon(cat.icon));
+    header.appendChild(el("h3", { class: "text-[17px] font-semibold text-[var(--color-text)]" }, [cat.title]));
     innerCard.appendChild(header);
 
-    const list = el("ul", { class: "space-y-2" });
+    const list = el("ul", { class: "space-y-2.5" });
     for (const check of cat.checks) {
-      const li = el("li", { class: "text-muted text-sm flex items-start gap-2" });
-      const bullet = el("span", { class: "text-gold mt-0.5 shrink-0" }, ["\u2192"]);
+      const li = el("li", { class: "text-[var(--color-text-2)] text-[14px] flex items-start gap-2.5" });
+      const bullet = el("span", { class: "text-[var(--color-accent)] mt-0.5 shrink-0 font-semibold" }, ["→"]);
       li.appendChild(bullet);
       li.appendChild(document.createTextNode(check));
       list.appendChild(li);
@@ -419,19 +459,17 @@ function WhatWeCheck(): HTMLElement {
 
 function GetStarted(): HTMLElement {
   const sec = section("get-started", "py-24 md:py-32");
-  const inner = el("div", {
-    class: "max-w-[1400px] mx-auto px-6 md:px-10 text-center",
-  });
+  const inner = el("div", { class: "max-w-[1400px] mx-auto px-6 md:px-10 text-center" });
 
   const h2 = el("h2", {
-    class: "text-[clamp(1.75rem,3vw,2.75rem)] font-bold tracking-tight text-cream mb-4",
+    class: "text-[clamp(1.8rem,3vw,2.8rem)] font-bold tracking-[-0.02em] text-[var(--color-text)] mb-4",
   }, ["Run it locally too"]);
   const p = el("p", {
-    class: "text-muted text-lg mb-10 max-w-[50ch] mx-auto leading-relaxed",
+    class: "text-[var(--color-text-2)] text-[17px] mb-10 max-w-[50ch] mx-auto leading-relaxed",
   }, ["For a full scan of your local project, run one command in your terminal."]);
 
   const codeBlock = el("div", { class: "code-block mb-10 inline-block text-left" }, [
-    el("span", { class: "text-white/40" }, ["$ "]),
+    el("span", { class: "text-[var(--color-text-3)]" }, ["$ "]),
     el("span", { class: "highlight" }, ["npx @agent-preflight/cli scan"]),
   ]);
 
@@ -439,7 +477,7 @@ function GetStarted(): HTMLElement {
   const repo = el("a", {
     href: "https://github.com/marsley01/agent-preflight",
     target: "_blank",
-    class: "px-7 py-3 bg-gold text-rock text-sm font-semibold rounded-full hover:bg-gold/90 transition-all duration-300",
+    class: "btn-primary px-7 py-3 text-[15px] rounded-full",
   }, ["Star on GitHub"]);
 
   linkRow.appendChild(repo);
@@ -453,24 +491,22 @@ function GetStarted(): HTMLElement {
 }
 
 function Footer(): HTMLElement {
-  const foot = el("footer", {
-    class: "py-8 border-t border-rock-border",
-  });
+  const foot = el("footer", { class: "py-8 border-t border-[var(--color-border)]" });
   const inner = el("div", {
-    class: "max-w-[1400px] mx-auto px-6 md:px-10 flex items-center justify-between text-sm text-muted flex-wrap gap-4",
+    class: "max-w-[1400px] mx-auto px-6 md:px-10 flex items-center justify-between text-[14px] text-[var(--color-text-2)] flex-wrap gap-4",
   });
   const left = el("span", {}, ["Built for people who build fast."]);
 
-  const right = el("div", { class: "flex items-center gap-4" });
+  const right = el("div", { class: "flex items-center gap-5" });
   const gh = el("a", {
     href: "https://github.com/marsley01/agent-preflight",
     target: "_blank",
-    class: "hover:text-white transition-colors",
+    class: "hover:text-[var(--color-text)] transition-colors",
   }, ["GitHub"]);
   const npmLink = el("a", {
     href: "https://npmjs.com/package/@agent-preflight/cli",
     target: "_blank",
-    class: "hover:text-white transition-colors",
+    class: "hover:text-[var(--color-text)] transition-colors",
   }, ["npm"]);
 
   right.appendChild(gh);
@@ -483,12 +519,9 @@ function Footer(): HTMLElement {
 
 function Background(): HTMLElement {
   const bg = el("div", { class: "fixed inset-0 z-0 pointer-events-none" });
-  const grid = el("div", { class: "bg-grid" });
-  const orb1 = el("div", { class: "orb orb-1" });
-  const orb2 = el("div", { class: "orb orb-2" });
-  bg.appendChild(grid);
-  bg.appendChild(orb1);
-  bg.appendChild(orb2);
+  bg.appendChild(el("div", { class: "bg-grid" }));
+  bg.appendChild(el("div", { class: "orb orb-1" }));
+  bg.appendChild(el("div", { class: "orb orb-2" }));
   return bg;
 }
 
@@ -503,7 +536,7 @@ function initZoomCards(): void {
       if (!inner) continue;
       const ratio = entry.intersectionRatio;
       if (ratio > 0) {
-        const scale = 1 + 0.02 * (1 - ratio);
+        const scale = 1 + 0.015 * (1 - ratio);
         inner.style.transform = `scale(${scale})`;
       }
     }
@@ -536,7 +569,7 @@ function init(): void {
     { threshold: 0.1, rootMargin: "0px 0px -50px 0px" },
   );
 
-  document.querySelectorAll(".fade-up").forEach((el) => fadeObserver.observe(el));
+  document.querySelectorAll(".fade-up").forEach((e) => fadeObserver.observe(e));
   initZoomCards();
 }
 
