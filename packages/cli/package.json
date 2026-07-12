@@ -1,39 +1,27 @@
 {
   "name": "@agent-preflight/cli",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
+  "description": "Pre-deploy checklist CLI for vibe coders",
+  "main": "dist/index.js",
   "bin": {
-    "preflight": "./dist/index.js"
+    "preflight": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "dev": "ts-node src/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agent-preflight/config": "workspace:*",
-    "@agent-preflight/evaluation": "workspace:*",
-    "@agent-preflight/memory": "workspace:*",
-    "@agent-preflight/observability": "workspace:*",
-    "@agent-preflight/protocol": "workspace:*",
-    "@agent-preflight/providers": "workspace:*",
-    "@agent-preflight/scanner": "workspace:*",
-    "@agent-preflight/security": "workspace:*",
-    "@agent-preflight/types": "workspace:*",
-    "@agent-preflight/utils": "workspace:*",
-    "chalk": "^5.6.2",
-    "cli-table3": "^0.6.4",
+    "chalk": "^5.3.0",
     "commander": "^12.0.0",
-    "conf": "^12.0.0",
-    "inquirer": "^9.0.0",
-    "ora": "^8.0.0",
-    "picocolors": "^1.0.0",
-    "semver": "^7.6.0"
+    "dotenv": "^16.4.0",
+    "glob": "^10.3.0",
+    "ora": "^8.0.1"
   },
   "devDependencies": {
-    "@types/inquirer": "^9.0.7",
     "@types/node": "^20.0.0",
-    "@types/semver": "^7.5.0",
-    "typescript": "^5.5.0"
-  }
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.0"
+  },
+  "license": "MIT"
 }
