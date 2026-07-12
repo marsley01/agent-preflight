@@ -35,77 +35,160 @@ function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
   return { owner, repo };
 }
 
-async function fetchFile(owner: string, repo: string, path: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.content) {
-      return atob(data.content.replace(/\n/g, ''));
+class ScanContext {
+  owner: string;
+  repo: string;
+  signal?: AbortSignal;
+  private cache = new Map<string, string | null>();
+  private pending = 0;
+  private queue: (() => void)[] = [];
+  private static MAX_CONCURRENCY = 5;
+  private static DELAY_MS = 80;
+
+  constructor(owner: string, repo: string, signal?: AbortSignal) {
+    this.owner = owner;
+    this.repo = repo;
+    this.signal = signal;
+  }
+
+  private async acquire(): Promise<void> {
+    if (this.signal?.aborted) throw new DOMException('The scan was cancelled', 'AbortError');
+    if (this.pending < ScanContext.MAX_CONCURRENCY) {
+      this.pending++;
+      return;
     }
-    return null;
-  } catch {
-    return null;
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        const i = this.queue.indexOf(run);
+        if (i >= 0) this.queue.splice(i, 1);
+        reject(new DOMException('The scan was cancelled', 'AbortError'));
+      };
+      const run = () => {
+        if (this.signal) this.signal.removeEventListener('abort', onAbort);
+        this.pending++;
+        resolve();
+      };
+      if (this.signal) this.signal.addEventListener('abort', onAbort, { once: true });
+      this.queue.push(run);
+    });
   }
-}
 
-async function fetchRepoInfo(owner: string, repo: string): Promise<any | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+  private release(): void {
+    this.pending--;
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      next?.();
+    }
   }
-}
 
-async function listFiles(owner: string, repo: string, path = ''): Promise<string[]> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!Array.isArray(data)) return [path || data.name];
-    const files: string[] = [];
-    for (const item of data) {
-      if (item.type === 'file') {
-        files.push(item.path);
-      } else if (item.type === 'dir') {
-        const nested = await listFiles(owner, repo, item.path);
-        files.push(...nested);
+  private async rateLimitedFetch(url: string): Promise<Response> {
+    await this.acquire();
+    try {
+      const res = await fetch(url, { signal: this.signal });
+      await new Promise(r => setTimeout(r, ScanContext.DELAY_MS));
+
+      if (res.status === 403 || res.status === 429) {
+        const remaining = res.headers.get('X-RateLimit-Remaining');
+        const reset = res.headers.get('X-RateLimit-Reset');
+        throw Object.assign(new Error('GitHub API rate limit reached'), {
+          status: res.status,
+          remaining,
+          reset: reset ? parseInt(reset) * 1000 : null,
+        });
       }
+
+      return res;
+    } finally {
+      this.release();
     }
-    return files;
-  } catch {
-    return [];
+  }
+
+  async fetchFile(path: string): Promise<string | null> {
+    const key = `${this.owner}/${this.repo}/${path}`;
+    if (this.cache.has(key)) return this.cache.get(key)!;
+
+    try {
+      const url = `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${path}`;
+      const res = await this.rateLimitedFetch(url);
+      if (!res.ok) {
+        this.cache.set(key, null);
+        return null;
+      }
+      const data = await res.json();
+      if (data.content) {
+        const content = atob(data.content.replace(/\n/g, ''));
+        this.cache.set(key, content);
+        return content;
+      }
+      this.cache.set(key, null);
+      return null;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      const rateLimitErr = err as any;
+      if (rateLimitErr?.status === 403 || rateLimitErr?.status === 429) throw err;
+      this.cache.set(key, null);
+      return null;
+    }
+  }
+
+  async fetchRepoInfo(): Promise<any | null> {
+    try {
+      const url = `https://api.github.com/repos/${this.owner}/${this.repo}`;
+      const res = await this.rateLimitedFetch(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      return null;
+    }
+  }
+
+  async listFiles(path = ''): Promise<string[]> {
+    try {
+      const url = `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${path}`;
+      const res = await this.rateLimitedFetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!Array.isArray(data)) return [path || data.name];
+      const files: string[] = [];
+      for (const item of data) {
+        if (item.type === 'file') {
+          files.push(item.path);
+        } else if (item.type === 'dir') {
+          const nested = await this.listFiles(item.path);
+          files.push(...nested);
+        }
+      }
+      return files;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      return [];
+    }
   }
 }
 
-async function fetchFileContent(owner: string, repo: string, path: string): Promise<string | null> {
-  return fetchFile(owner, repo, path);
-}
-
-async function runSecurityChecks(owner: string, repo: string): Promise<ScanCheck[]> {
+async function runSecurityChecks(ctx: ScanContext): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
 
-  const gitignore = await fetchFile(owner, repo, '.gitignore');
+  const gitignore = await ctx.fetchFile('.gitignore');
   if (gitignore !== null) {
     if (gitignore.includes('.env')) {
       results.push({ status: 'pass', message: '.env is gitignored' });
     } else {
-      results.push({ status: 'fail', message: '.env is NOT gitignored — secrets will be committed' });
+      results.push({ status: 'fail', message: '.env is NOT gitignored \u2014 secrets will be committed' });
     }
   } else {
     results.push({ status: 'warn', message: 'No .gitignore found' });
   }
 
-  const envExample = await fetchFile(owner, repo, '.env.example');
+  const envExample = await ctx.fetchFile('.env.example');
   if (envExample !== null) {
     results.push({ status: 'pass', message: '.env.example exists' });
   } else {
-    results.push({ status: 'warn', message: 'No .env.example — collaborators won\'t know what vars to set' });
+    results.push({ status: 'warn', message: 'No .env.example \u2014 collaborators won\u2019t know what vars to set' });
   }
 
-  const allFiles = await listFiles(owner, repo);
+  const allFiles = await ctx.listFiles();
   const clientExtensions = ['.ts', '.tsx', '.js', '.jsx'];
   const clientPatterns = ['components', 'app', 'pages', 'src/app', 'src/pages', 'src/components', 'src/lib'];
   const suspiciousFiles = allFiles.filter(f =>
@@ -122,13 +205,13 @@ async function runSecurityChecks(owner: string, repo: string): Promise<ScanCheck
 
   let foundSecret = false;
   for (const filePath of suspiciousFiles) {
-    const content = await fetchFileContent(owner, repo, filePath);
+    const content = await ctx.fetchFile(filePath);
     if (!content) continue;
     const lines = content.split('\n');
     for (const { regex, label } of dangerousPatterns) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (regex.test(lines[i]) && !line.startsWith('//') && !line.startsWith('*')) {
+        if (regex.test(line) && !line.startsWith('//') && !line.startsWith('*')) {
           results.push({ status: 'fail', message: `${label} found in client-side code`, file: filePath, line: i + 1 });
           foundSecret = true;
         }
@@ -143,20 +226,20 @@ async function runSecurityChecks(owner: string, repo: string): Promise<ScanCheck
   return results;
 }
 
-async function runAuthChecks(owner: string, repo: string): Promise<ScanCheck[]> {
+async function runAuthChecks(ctx: ScanContext): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
 
-  const middlewareCheck = await fetchFile(owner, repo, 'middleware.ts') ||
-    await fetchFile(owner, repo, 'src/middleware.ts') ||
-    await fetchFile(owner, repo, 'middleware.js');
+  const middlewareCheck = await ctx.fetchFile('middleware.ts') ||
+    await ctx.fetchFile('src/middleware.ts') ||
+    await ctx.fetchFile('middleware.js');
 
   if (middlewareCheck) {
     results.push({ status: 'pass', message: 'Auth middleware file found' });
   } else {
-    results.push({ status: 'warn', message: 'No middleware.ts found — protected routes may be unsecured' });
+    results.push({ status: 'warn', message: 'No middleware.ts found \u2014 protected routes may be unsecured' });
   }
 
-  const envExample = await fetchFile(owner, repo, '.env.example');
+  const envExample = await ctx.fetchFile('.env.example');
   if (envExample) {
     if (envExample.includes('JWT_SECRET') || envExample.includes('NEXTAUTH_SECRET') || envExample.includes('AUTH_SECRET')) {
       results.push({ status: 'pass', message: 'Auth secret documented in .env.example' });
@@ -168,21 +251,21 @@ async function runAuthChecks(owner: string, repo: string): Promise<ScanCheck[]> 
   return results;
 }
 
-async function runPaymentChecks(owner: string, repo: string): Promise<ScanCheck[]> {
+async function runPaymentChecks(ctx: ScanContext): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
-  const allFiles = await listFiles(owner, repo);
+  const allFiles = await ctx.listFiles();
   const paymentFiles = allFiles.filter(f =>
     /webhook|stripe|mpesa|payment|daraja|stk/i.test(f)
   );
 
   if (paymentFiles.length === 0) {
-    results.push({ status: 'warn', message: 'No payment-related files detected — skipping payment checks' });
+    results.push({ status: 'warn', message: 'No payment-related files detected \u2014 skipping payment checks' });
     return results;
   }
 
   let hasSignature = false;
   for (const file of paymentFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (!content) continue;
     if (
       content.includes('constructEvent') ||
@@ -197,21 +280,21 @@ async function runPaymentChecks(owner: string, repo: string): Promise<ScanCheck[
   }
 
   if (!hasSignature) {
-    results.push({ status: 'fail', message: 'No webhook signature validation found — anyone can fake payment events', file: paymentFiles[0] });
+    results.push({ status: 'fail', message: 'No webhook signature validation found \u2014 anyone can fake payment events', file: paymentFiles[0] });
   }
 
   return results;
 }
 
-async function runDatabaseChecks(owner: string, repo: string): Promise<ScanCheck[]> {
+async function runDatabaseChecks(ctx: ScanContext): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
-  const allFiles = await listFiles(owner, repo);
+  const allFiles = await ctx.listFiles();
   const sqlFiles = allFiles.filter(f => f.endsWith('.sql'));
 
   if (sqlFiles.length > 0) {
     let hasRLS = false;
     for (const file of sqlFiles) {
-      const content = await fetchFileContent(owner, repo, file);
+      const content = await ctx.fetchFile(file);
       if (content && (content.toLowerCase().includes('row level security') || content.toLowerCase().includes('enable rls'))) {
         hasRLS = true;
         break;
@@ -220,13 +303,13 @@ async function runDatabaseChecks(owner: string, repo: string): Promise<ScanCheck
     results.push(
       hasRLS
         ? { status: 'pass', message: 'Row Level Security (RLS) enabled in migrations' }
-        : { status: 'fail', message: 'No RLS policies found in SQL migrations — database may be fully open' }
+        : { status: 'fail', message: 'No RLS policies found in SQL migrations \u2014 database may be fully open' }
     );
   } else {
-    results.push({ status: 'warn', message: 'No SQL migrations found — skipping RLS check' });
+    results.push({ status: 'warn', message: 'No SQL migrations found \u2014 skipping RLS check' });
   }
 
-  const envExample = await fetchFile(owner, repo, '.env.example');
+  const envExample = await ctx.fetchFile('.env.example');
   if (envExample) {
     if (envExample.includes('DATABASE_URL') || envExample.includes('SUPABASE_URL')) {
       results.push({ status: 'pass', message: 'Database URL documented in .env.example' });
@@ -238,19 +321,19 @@ async function runDatabaseChecks(owner: string, repo: string): Promise<ScanCheck
   return results;
 }
 
-async function runApiChecks(owner: string, repo: string): Promise<ScanCheck[]> {
+async function runApiChecks(ctx: ScanContext): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
-  const allFiles = await listFiles(owner, repo);
+  const allFiles = await ctx.listFiles();
   const apiFiles = allFiles.filter(f => f.startsWith('src/app/api/') || f.startsWith('pages/api/'));
 
   if (apiFiles.length === 0) {
-    results.push({ status: 'warn', message: 'No API routes found — skipping API checks' });
+    results.push({ status: 'warn', message: 'No API routes found \u2014 skipping API checks' });
     return results;
   }
 
   const unvalidated: string[] = [];
   for (const file of apiFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (!content) continue;
     const hasPOST = content.includes('POST') || content.includes('req.body') || content.includes('request.json()');
     const hasValidation =
@@ -265,20 +348,39 @@ async function runApiChecks(owner: string, repo: string): Promise<ScanCheck[]> {
     results.push({ status: 'warn', message: `${unvalidated.length} POST route${unvalidated.length > 1 ? 's' : ''} missing input validation` });
   }
 
-  const hasRateLimit = allFiles.some(f => {
-    // Just check for rate-limit related files/packages as a heuristic
-    return f.includes('ratelimit') || f.includes('rate-limit') || f === 'package.json';
-  });
+  const hasRateLimit = allFiles.some(f =>
+    f.includes('ratelimit') || f.includes('rate-limit') || f === 'package.json'
+  );
   results.push(
     hasRateLimit
       ? { status: 'pass', message: 'Rate limiting detected' }
-      : { status: 'warn', message: 'No rate limiting found — API may be open to abuse' }
+      : { status: 'warn', message: 'No rate limiting found \u2014 API may be open to abuse' }
   );
 
   return results;
 }
 
-async function runVulnerabilityChecks(owner: string, repo: string, allFiles: string[]): Promise<ScanCheck[]> {
+async function runWebChecks(ctx: ScanContext): Promise<ScanCheck[]> {
+  const results: ScanCheck[] = [];
+
+  const nextConfig = await ctx.fetchFile('next.config.ts') ||
+    await ctx.fetchFile('next.config.js') ||
+    await ctx.fetchFile('next.config.mjs');
+
+  if (nextConfig) {
+    if (nextConfig.includes('Content-Security-Policy') || nextConfig.includes('csp')) {
+      results.push({ status: 'pass', message: 'Content Security Policy (CSP) configured' });
+    } else {
+      results.push({ status: 'warn', message: 'No CSP found \u2014 app may be vulnerable to XSS' });
+    }
+  } else {
+    results.push({ status: 'warn', message: 'No Next.js config found \u2014 skipping header checks' });
+  }
+
+  return results;
+}
+
+async function runVulnerabilityChecks(ctx: ScanContext, allFiles: string[]): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
 
   const clientFiles = allFiles.filter(f =>
@@ -286,11 +388,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
     !f.includes('node_modules')
   );
 
-  // 1. XSS: dangerouslySetInnerHTML / innerHTML
+  // XSS
   let hasXSS = false;
   let xssFile: string | undefined;
   for (const file of clientFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (content && (content.includes('dangerouslySetInnerHTML') || content.includes('.innerHTML ='))) {
       hasXSS = true;
       xssFile = file;
@@ -303,11 +405,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'pass', message: 'No dangerouslySetInnerHTML or innerHTML assignments found' }
   );
 
-  // 2. eval() usage
+  // eval()
   let hasEval = false;
   let evalFile: string | undefined;
   for (const file of clientFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (!content) continue;
     for (const line of content.split('\n')) {
       if (/eval\s*\(/.test(line.trim()) && !line.trim().startsWith('//')) {
@@ -324,11 +426,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'pass', message: 'No eval() usage detected' }
   );
 
-  // 3. Nosniff header check in config files
+  // Nosniff
   const configFiles = ['next.config.ts', 'next.config.js', 'next.config.mjs', '.htaccess', 'nginx.conf'];
   let hasNosniff = false;
   for (const cfg of configFiles) {
-    const content = await fetchFileContent(owner, repo, cfg);
+    const content = await ctx.fetchFile(cfg);
     if (content && (content.includes('nosniff') || content.includes('X-Content-Type-Options'))) {
       hasNosniff = true;
       break;
@@ -340,10 +442,10 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'warn', message: 'No X-Content-Type-Options: nosniff found \u2014 browser may MIME-sniff responses' }
   );
 
-  // 4. HSTS
+  // HSTS
   let hasHSTS = false;
   for (const cfg of configFiles) {
-    const content = await fetchFileContent(owner, repo, cfg);
+    const content = await ctx.fetchFile(cfg);
     if (content && (content.includes('Strict-Transport-Security') || content.includes('HSTS') || content.includes('hsts'))) {
       hasHSTS = true;
       break;
@@ -355,11 +457,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'warn', message: 'No HSTS header found \u2014 users may connect over HTTP instead of HTTPS' }
   );
 
-  // 5. Mixed content: http://
+  // Mixed content
   let hasMixed = false;
   let mixedFile: string | undefined;
   for (const file of clientFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (!content) continue;
     const matches = content.match(/http:\/\/[^\s"'`)*]+/g);
     if (matches && matches.some(u => !u.includes('localhost') && !u.includes('127.0.0.1'))) {
@@ -374,11 +476,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'pass', message: 'No mixed content (http:// URLs) detected in source' }
   );
 
-  // 6. CSRF protection
+  // CSRF
   const csrfPatterns = ['csrf', 'CSRF', 'csrfToken', 'xsrf', 'XSRF', 'SameSite', 'sameSite', 'doubleSubmit'];
   let hasCSRF = false;
   for (const file of clientFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (content && csrfPatterns.some(p => content.includes(p))) {
       hasCSRF = true;
       break;
@@ -390,11 +492,11 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'warn', message: 'No CSRF protection detected \u2014 forms and API mutations may be vulnerable to cross-site requests' }
   );
 
-  // 7. Debug mode
+  // Debug mode
   let hasDebug = false;
   let debugFile: string | undefined;
   for (const file of clientFiles) {
-    const content = await fetchFileContent(owner, repo, file);
+    const content = await ctx.fetchFile(file);
     if (!content) continue;
     for (const line of content.split('\n')) {
       if ((line.includes('debug: true') || line.includes('debug = true') || line.includes('isDebug = true')) && !line.trim().startsWith('//')) {
@@ -411,8 +513,8 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
       : { status: 'pass', message: 'No debug mode flags detected in source' }
   );
 
-  // 8. .gitignore hygiene
-  const gitignore = await fetchFile(owner, repo, '.gitignore');
+  // .gitignore hygiene
+  const gitignore = await ctx.fetchFile('.gitignore');
   if (gitignore) {
     const expected = ['.next', 'dist', 'build', '.env.local', 'coverage', '.turbo'];
     const missing = expected.filter(e => !gitignore.includes(e));
@@ -421,26 +523,6 @@ async function runVulnerabilityChecks(owner: string, repo: string, allFiles: str
         ? { status: 'pass', message: 'All common build artifacts are gitignored' }
         : { status: 'warn', message: `Build artifacts not gitignored: ${missing.join(', ')}` }
     );
-  }
-
-  return results;
-}
-
-async function runWebChecks(owner: string, repo: string): Promise<ScanCheck[]> {
-  const results: ScanCheck[] = [];
-
-  const nextConfig = await fetchFile(owner, repo, 'next.config.ts') ||
-    await fetchFile(owner, repo, 'next.config.js') ||
-    await fetchFile(owner, repo, 'next.config.mjs');
-
-  if (nextConfig) {
-    if (nextConfig.includes('Content-Security-Policy') || nextConfig.includes('csp')) {
-      results.push({ status: 'pass', message: 'Content Security Policy (CSP) configured' });
-    } else {
-      results.push({ status: 'warn', message: 'No CSP found — app may be vulnerable to XSS' });
-    }
-  } else {
-    results.push({ status: 'warn', message: 'No Next.js config found — skipping header checks' });
   }
 
   return results;
@@ -459,8 +541,16 @@ export const SCAN_STAGES = [
 
 export type ScanProgressHandler = (stage: string, completed: number, total: number) => void;
 
+export class ScanAbortedError extends Error {
+  constructor() {
+    super('Scan was cancelled');
+    this.name = 'ScanAbortedError';
+  }
+}
+
 export async function scanGitHubRepo(
   input: string,
+  signal?: AbortSignal,
   onProgress?: ScanProgressHandler,
 ): Promise<ScanReport> {
   const parsed = parseGitHubUrl(input);
@@ -475,7 +565,9 @@ export async function scanGitHubRepo(
   }
 
   const { owner, repo } = parsed;
-  const repoInfo = await fetchRepoInfo(owner, repo);
+  const ctx = new ScanContext(owner, repo, signal);
+
+  const repoInfo = await ctx.fetchRepoInfo();
   if (!repoInfo) {
     return {
       repo: `${owner}/${repo}`,
@@ -488,21 +580,22 @@ export async function scanGitHubRepo(
 
   const total = SCAN_STAGES.length;
   onProgress?.('Fetching repository files', 0, total);
-  const allFiles = await listFiles(owner, repo);
+  const allFiles = await ctx.listFiles();
 
   const steps: [string, () => Promise<ScanCheck[]>][] = [
-    ['Security', () => runSecurityChecks(owner, repo)],
-    ['Authentication', () => runAuthChecks(owner, repo)],
-    ['Payments', () => runPaymentChecks(owner, repo)],
-    ['Database', () => runDatabaseChecks(owner, repo)],
-    ['API & Validation', () => runApiChecks(owner, repo)],
-    ['Web Security', () => runWebChecks(owner, repo)],
-    ['Vulnerabilities', () => runVulnerabilityChecks(owner, repo, allFiles)],
+    ['Security', () => runSecurityChecks(ctx)],
+    ['Authentication', () => runAuthChecks(ctx)],
+    ['Payments', () => runPaymentChecks(ctx)],
+    ['Database', () => runDatabaseChecks(ctx)],
+    ['API & Validation', () => runApiChecks(ctx)],
+    ['Web Security', () => runWebChecks(ctx)],
+    ['Vulnerabilities', () => runVulnerabilityChecks(ctx, allFiles)],
   ];
 
   const categories: ScanCategory[] = [];
   let completed = 1;
   for (const [name, fn] of steps) {
+    if (signal?.aborted) throw new ScanAbortedError();
     onProgress?.(name, completed, total);
     const checks = await fn();
     categories.push({ name, checks });

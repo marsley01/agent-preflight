@@ -1,5 +1,5 @@
 import "./style.css";
-import { scanGitHubRepo, SCAN_STAGES, type ScanReport, type ScanCheck } from "./scanner";
+import { scanGitHubRepo, SCAN_STAGES, ScanAbortedError, type ScanReport, type ScanCheck } from "./scanner";
 
 const APP = document.getElementById("app")!;
 
@@ -66,6 +66,7 @@ let scanReport: ScanReport | null = null;
 let scanning = false;
 let scanError: string | null = null;
 let scanProgress: { stage: string; completed: number; total: number } | null = null;
+let abortController: AbortController | null = null;
 function fixSuggestion(check: { status: string; message: string; file?: string; line?: number }): string {
   const msg = check.message.toLowerCase();
   if (msg.includes('service_role') || msg.includes('service role')) return 'Move to a server-only environment variable and create an API route that proxies requests server-side.';
@@ -231,21 +232,27 @@ function ScanBox(): HTMLElement {
     scanning = true;
     scanError = null;
     scanReport = null;
-    scanProgress = { stage: "Starting…", completed: 0, total: SCAN_STAGES.length };
+    abortController = new AbortController();
+    scanProgress = { stage: "Starting\u2026", completed: 0, total: SCAN_STAGES.length };
     scanBtn.disabled = true;
     scanBtn.textContent = "Scanning";
     renderResults();
 
     try {
-      scanReport = await scanGitHubRepo(url, (stage, completed, total) => {
+      scanReport = await scanGitHubRepo(url, abortController.signal, (stage, completed, total) => {
         scanProgress = { stage, completed, total };
         renderResults();
       });
-    } catch {
-      scanError = "Something went wrong. Check the URL and try again.";
+    } catch (err) {
+      if (err instanceof ScanAbortedError) {
+        scanError = "Scan cancelled.";
+      } else {
+        scanError = "Something went wrong. Check the URL and try again.";
+      }
     } finally {
       scanning = false;
       scanProgress = null;
+      abortController = null;
       scanBtn.disabled = false;
       scanBtn.textContent = "Scan";
       renderResults();
@@ -301,6 +308,16 @@ function ScanProgressSection(): HTMLElement {
     ul.appendChild(row);
   });
   card.appendChild(ul);
+
+  const cancelRow = el("div", { class: "text-center mt-5" });
+  const cancelBtn = el("button", {
+    class: "btn-secondary text-[13px] px-5 py-2 rounded-full",
+  }, ["Cancel scan"]) as HTMLButtonElement;
+  cancelBtn.addEventListener("click", () => {
+    abortController?.abort();
+  });
+  cancelRow.appendChild(cancelBtn);
+  card.appendChild(cancelRow);
 
   sec.appendChild(card);
   return sec;
