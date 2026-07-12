@@ -509,21 +509,24 @@ function ResultsSection(): HTMLElement | null {
 }
 
 function renderResults() {
-  const existing = document.getElementById("results");
-  if (existing) existing.remove();
+  const container = document.getElementById("scan-container")!;
+  container.innerHTML = ""; // Clear existing
 
-  const elSec = ResultsSection();
-  if (elSec) {
-    elSec.id = "results";
-    const getStarted = document.getElementById("get-started");
-    if (getStarted) {
-      getStarted.parentNode!.insertBefore(elSec, getStarted);
-    } else {
-      APP.appendChild(elSec);
-    }
-    if (scanning) elSec.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (scanning) {
+    container.appendChild(ScanProgressSection());
+  } else if (scanError) {
+    const card = el("div", { class: "error-card" });
+    card.appendChild(el("div", { class: "error-title" }, ["Scan failed"]));
+    card.appendChild(el("div", { class: "error-desc" }, [scanError]));
+    container.appendChild(card);
+  } else if (scanReport) {
+    container.appendChild(ResultsContent(scanReport));
+  } else {
+    container.appendChild(ScanBoxForm());
   }
 }
+
+// ... then re-implement ScanBoxForm and ResultsContent ...
 
 function Problem(): HTMLElement {
   const sec = section("problem", "py-24 md:py-32 border-t border-[var(--color-border)]");

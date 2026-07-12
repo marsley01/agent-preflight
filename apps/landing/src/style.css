@@ -115,7 +115,7 @@ body {
 /* Cards */
 .zoom-card {
   border: 1px solid var(--color-border);
-  border-radius: 20px;
+  border-radius: 32px;
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
   overflow: hidden;
