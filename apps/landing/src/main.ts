@@ -246,6 +246,8 @@ function ScanBox(): HTMLElement {
     } catch (err) {
       if (err instanceof ScanAbortedError) {
         scanError = "Scan cancelled.";
+      } else if ((err as any)?.status === 403 || (err as any)?.status === 429) {
+        scanError = "GitHub API rate limit reached. Try again in about an hour, or use \u2018npx @preflight-agent/cli scan\u2019 locally for unlimited scanning.";
       } else {
         scanError = "Something went wrong. Check the URL and try again.";
       }

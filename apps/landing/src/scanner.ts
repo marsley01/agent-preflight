@@ -84,7 +84,9 @@ class ScanContext {
   private async rateLimitedFetch(url: string): Promise<Response> {
     await this.acquire();
     try {
-      const res = await fetch(url, { signal: this.signal });
+      const opts: RequestInit = {};
+      if (this.signal) opts.signal = this.signal;
+      const res = await fetch(url, opts);
       await new Promise(r => setTimeout(r, ScanContext.DELAY_MS));
 
       if (res.status === 403 || res.status === 429) {
@@ -139,7 +141,7 @@ class ScanContext {
       return await res.json();
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') throw err;
-      return null;
+      throw err;
     }
   }
 
@@ -161,7 +163,9 @@ class ScanContext {
       }
       return files;
     } catch (err) {
+      const rateErr = err as any;
       if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      if (rateErr?.status === 403 || rateErr?.status === 429) throw err;
       return [];
     }
   }
@@ -567,7 +571,28 @@ export async function scanGitHubRepo(
   const { owner, repo } = parsed;
   const ctx = new ScanContext(owner, repo, signal);
 
-  const repoInfo = await ctx.fetchRepoInfo();
+  let repoInfo: any;
+  try {
+    repoInfo = await ctx.fetchRepoInfo();
+  } catch (err) {
+    const rateErr = err as any;
+    if (rateErr?.status === 403 || rateErr?.status === 429) {
+      return {
+        repo: `${owner}/${repo}`,
+        categories: [{
+          name: 'Error',
+          checks: [{ status: 'fail', message: 'GitHub API rate limit reached. Try again in about an hour, or use the CLI tool for unlimited scanning.' }],
+        }],
+      };
+    }
+    return {
+      repo: `${owner}/${repo}`,
+      categories: [{
+        name: 'Error',
+        checks: [{ status: 'fail', message: `Could not reach GitHub API. Check the URL and try again.` }],
+      }],
+    };
+  }
   if (!repoInfo) {
     return {
       repo: `${owner}/${repo}`,
