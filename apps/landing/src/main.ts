@@ -38,6 +38,8 @@ function icon(name: string): HTMLElement {
     clipboard: '<rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 9h6M9 13h6M9 17h4"/>',
     globe: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/>',
     check: '<path d="M5 12.5l4 4 10-10"/>',
+    copy: '<rect x="9" y="5" width="10" height="13" rx="1.5"/><path d="M6 9H7a1 1 0 011 1v1"/><path d="M5 10a2 2 0 012-2h5a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6z"/>',
+    wand: '<path d="M16.5 3.5l1.5 1.5-11 11L5.5 14.5 16.5 3.5z"/><path d="M15.5 4.5l2 2"/><path d="M3.5 18.5l1.5-1.5"/><path d="M13 2l.5 2M19 8l2 .5M12 22l1-3M20 16l3 1"/>',
   };
   span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? ""}</svg>`;
   return span;
@@ -64,6 +66,75 @@ let scanReport: ScanReport | null = null;
 let scanning = false;
 let scanError: string | null = null;
 let scanProgress: { stage: string; completed: number; total: number } | null = null;
+function fixSuggestion(check: { status: string; message: string; file?: string; line?: number }): string {
+  const msg = check.message.toLowerCase();
+  if (msg.includes('service_role') || msg.includes('service role')) return 'Move to a server-only environment variable and create an API route that proxies requests server-side.';
+  if (msg.includes('secret') || msg.includes('api key')) return 'Replace with server-side environment variables and use a backend endpoint to proxy authenticated calls.';
+  if (msg.includes('.env is not gitignored')) return 'Add .env to your .gitignore file so secrets are never committed to the repository.';
+  if (msg.includes('no .env.example')) return 'Create a .env.example file listing all required environment variables with placeholder values.';
+  if (msg.includes('middleware')) return 'Add an authentication middleware file that checks session or token validity before allowing access to protected routes.';
+  if (msg.includes('constructevent') || msg.includes('signature')) return 'Implement webhook signature verification using the SDK method to confirm events came from the provider.';
+  if (msg.includes('rls') || msg.includes('row level')) return 'Enable Row Level Security on all database tables and define access policies for each role.';
+  if (msg.includes('validation') || msg.includes('zod') || msg.includes('yup')) return 'Add Zod or Yup input validation schemas to all POST, PUT, and PATCH route handlers.';
+  if (msg.includes('csp') || msg.includes('content-security')) return 'Add a Content-Security-Policy header that restricts which resources can be loaded by the browser.';
+  if (msg.includes('hsts')) return 'Configure a Strict-Transport-Security header to enforce HTTPS connections for all visitors.';
+  if (msg.includes('nosniff')) return 'Set the X-Content-Type-Options: nosniff response header to prevent browsers from MIME-sniffing responses.';
+  if (msg.includes('xss') || msg.includes('dangerously') || msg.includes('innerhtml')) return 'Replace with safe React components, or sanitize the HTML string with a library like DOMPurify before rendering.';
+  if (msg.includes('eval')) return 'Remove all eval() calls and use safer alternatives like JSON.parse or a proper expression parser.';
+  if (msg.includes('csrf')) return 'Implement CSRF protection: add anti-forgery tokens to forms and set SameSite=Strict on session cookies.';
+  if (msg.includes('debug')) return 'Set debug mode to false in production configuration and remove any debug-only endpoints from the build.';
+  if (msg.includes('gitignore')) return 'Add common build output directories (.next, dist, build, .env.local) to .gitignore so they are not committed.';
+  if (msg.includes('rate limit')) return 'Add rate limiting middleware to your API routes to prevent abuse (e.g. upstash-rate-limit, express-rate-limit).';
+  if (msg.includes('cors')) return 'Configure CORS with an explicit list of allowed origins and restrict methods to only those needed in production.';
+  if (msg.includes('clickjack')) return 'Add the X-Frame-Options: DENY header or the frame-ancestors CSP directive to prevent clickjacking.';
+  if (msg.includes('cookie') && (msg.includes('secure') || msg.includes('http') || msg.includes('same'))) return 'Set httpOnly, secure, and SameSite=Strict flags on all cookies to prevent XSS and CSRF attacks.';
+  if (msg.includes('mixed content')) return 'Replace all http:// external URLs with https:// equivalents to prevent mixed content warnings.';
+  return 'Review this issue and apply the security best practice described in the check message.';
+}
+
+function generateFixPrompt(report: ScanReport): string {
+  const issues: { status: string; message: string; file?: string; line?: number; category: string }[] = [];
+  for (const cat of report.categories) {
+    for (const check of cat.checks) {
+      issues.push({ ...check, category: cat.name });
+    }
+  }
+
+  const critical = issues.filter(i => i.status === 'fail');
+  const warnings = issues.filter(i => i.status === 'warn');
+
+  let prompt = 'You are a senior security engineer. Fix all vulnerabilities in the codebase attached to this conversation.\n\n';
+  prompt += '# Scan Results — Fix Prompt\n\n';
+
+  if (critical.length > 0) {
+    prompt += `## Critical Issues (${critical.length} must fix)\n\n`;
+    for (const issue of critical) {
+      prompt += `### ${issue.category}: ${issue.message}\n`;
+      if (issue.file) {
+        prompt += `**File:** \`${issue.file}${issue.line ? `:${issue.line}` : ''}\`\n`;
+      }
+      prompt += `**Fix:** ${fixSuggestion(issue)}\n\n`;
+    }
+  }
+
+  if (warnings.length > 0) {
+    prompt += `## Warnings (${warnings.length} should fix)\n\n`;
+    for (const issue of warnings) {
+      prompt += `- ${issue.category}: ${issue.message}`;
+      if (issue.file) prompt += ` (\`${issue.file}${issue.line ? `:${issue.line}` : ''}\`)`;
+      prompt += `\n  Fix: ${fixSuggestion(issue)}\n\n`;
+    }
+  }
+
+  const passed = issues.filter(i => i.status === 'pass');
+  prompt += '## Already Passing\n';
+  prompt += `These ${passed.length} checks passed — no action needed.\n`;
+  prompt += '\n---\n';
+  prompt += 'For each issue, provide the exact code changes needed. Use the file paths and line numbers above to locate and fix each vulnerability.';
+  prompt += ' Apply fixes one at a time and ensure you do not introduce regressions.';
+
+  return prompt;
+}
 
 function Navbar(): HTMLElement {
   const nav = el("nav", { class: "fixed top-0 left-0 right-0 z-50 glass-nav h-16 flex items-center" });
@@ -314,6 +385,58 @@ function ResultsSection(): HTMLElement | null {
   }
 
   inner.appendChild(container);
+
+  // Fix with AI prompt
+  const fixCard = el("div", { class: "cat-card mt-8", style: "max-width:700px;margin-left:auto;margin-right:auto" });
+  const fixInner = el("div", { class: "cat-card__inner" });
+  const fixTitle = el("div", { class: "cat-title" });
+  fixTitle.appendChild(icon("wand"));
+  fixTitle.appendChild(document.createTextNode("Fix with AI"));
+  fixInner.appendChild(fixTitle);
+
+  const fixDesc = el("p", { class: "text-[14px] text-[var(--color-text-2)] mb-4 leading-relaxed" }, [
+    "Copy this prompt and paste it into Cursor, Claude, or Copilot to fix all issues found in this scan.",
+  ]);
+  fixInner.appendChild(fixDesc);
+
+  const prompt = generateFixPrompt(scanReport);
+  const textarea = el("textarea", {
+    readonly: "",
+    class: "field w-full p-4 text-[13px] font-mono leading-relaxed resize-none",
+    style: "min-height:120px;color:var(--color-text-2)",
+    rows: "6",
+  }) as HTMLTextAreaElement;
+  textarea.value = prompt;
+
+  const copyRow = el("div", { class: "flex items-center gap-3 mt-3" });
+  const copyBtn = el("button", {
+    class: "btn-primary px-5 py-2 text-[13px] flex items-center gap-2",
+  }, [icon("copy"), document.createTextNode("Copy prompt")]) as HTMLButtonElement;
+  let copyLabel: HTMLElement | null = null;
+
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      if (copyLabel) copyLabel.remove();
+      copyLabel = el("span", { class: "text-[13px] text-[var(--color-green)] font-medium" }, ["Copied"]);
+      copyRow.appendChild(copyLabel);
+      setTimeout(() => copyLabel?.remove(), 2000);
+    } catch {
+      textarea.select();
+      document.execCommand("copy");
+      if (copyLabel) copyLabel.remove();
+      copyLabel = el("span", { class: "text-[13px] text-[var(--color-green)] font-medium" }, ["Copied"]);
+      copyRow.appendChild(copyLabel);
+      setTimeout(() => copyLabel?.remove(), 2000);
+    }
+  });
+
+  copyRow.appendChild(copyBtn);
+  fixInner.appendChild(textarea);
+  fixInner.appendChild(copyRow);
+  fixCard.appendChild(fixInner);
+  inner.appendChild(fixCard);
+
   sec.appendChild(inner);
   return sec;
 }
