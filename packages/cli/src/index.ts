@@ -15,7 +15,7 @@ program
   .description('Scan a project for common pre-deploy issues')
   .option('--json', 'Output results as JSON')
   .option('--strict', 'Exit with code 1 if any checks fail')
-  .option('--only <category>', 'Run only one category: security|auth|payments|database|api|web|graphql|realtime')
+  .option('--only <category>', 'Run only one category: security|auth|payments|database|api|web|graphql|realtime|vulnerabilities')
   .action(async (dir: string = '.', options) => {
     await runScan(dir, options);
   });

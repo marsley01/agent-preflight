@@ -6,3 +6,4 @@ export { runApiChecks } from './api';
 export { runWebChecks } from './web';
 export { runGraphqlChecks } from './graphql';
 export { runRealtimeChecks } from './realtime';
+export { runVulnerabilityChecks } from './vulnerabilities';

@@ -8,6 +8,7 @@ import { runApiChecks } from './checks/api';
 import { runWebChecks } from './checks/web';
 import { runGraphqlChecks } from './checks/graphql';
 import { runRealtimeChecks } from './checks/realtime';
+import { runVulnerabilityChecks } from './checks/vulnerabilities';
 import { renderReport } from './reporter';
 
 export interface CheckResult {
@@ -100,6 +101,14 @@ export async function runScan(dir: string, options: ScanOptions) {
       categories.push({
         name: 'Real-Time',
         checks: await runRealtimeChecks(absoluteDir),
+      });
+    }
+
+    if (shouldRun('vulnerabilities')) {
+      spinner.text = 'Checking for web vulnerabilities...';
+      categories.push({
+        name: 'Vulnerabilities',
+        checks: await runVulnerabilityChecks(absoluteDir),
       });
     }
 

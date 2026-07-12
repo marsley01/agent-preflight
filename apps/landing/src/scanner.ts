@@ -278,6 +278,154 @@ async function runApiChecks(owner: string, repo: string): Promise<ScanCheck[]> {
   return results;
 }
 
+async function runVulnerabilityChecks(owner: string, repo: string, allFiles: string[]): Promise<ScanCheck[]> {
+  const results: ScanCheck[] = [];
+
+  const clientFiles = allFiles.filter(f =>
+    /\.(ts|tsx|js|jsx)$/.test(f) &&
+    !f.includes('node_modules')
+  );
+
+  // 1. XSS: dangerouslySetInnerHTML / innerHTML
+  let hasXSS = false;
+  let xssFile: string | undefined;
+  for (const file of clientFiles) {
+    const content = await fetchFileContent(owner, repo, file);
+    if (content && (content.includes('dangerouslySetInnerHTML') || content.includes('.innerHTML ='))) {
+      hasXSS = true;
+      xssFile = file;
+      break;
+    }
+  }
+  results.push(
+    hasXSS
+      ? { status: 'warn', message: 'dangerouslySetInnerHTML or innerHTML assignment found \u2014 potential XSS risk', file: xssFile }
+      : { status: 'pass', message: 'No dangerouslySetInnerHTML or innerHTML assignments found' }
+  );
+
+  // 2. eval() usage
+  let hasEval = false;
+  let evalFile: string | undefined;
+  for (const file of clientFiles) {
+    const content = await fetchFileContent(owner, repo, file);
+    if (!content) continue;
+    for (const line of content.split('\n')) {
+      if (/eval\s*\(/.test(line.trim()) && !line.trim().startsWith('//')) {
+        hasEval = true;
+        evalFile = file;
+        break;
+      }
+    }
+    if (hasEval) break;
+  }
+  results.push(
+    hasEval
+      ? { status: 'fail', message: 'eval() usage detected \u2014 arbitrary code execution risk', file: evalFile }
+      : { status: 'pass', message: 'No eval() usage detected' }
+  );
+
+  // 3. Nosniff header check in config files
+  const configFiles = ['next.config.ts', 'next.config.js', 'next.config.mjs', '.htaccess', 'nginx.conf'];
+  let hasNosniff = false;
+  for (const cfg of configFiles) {
+    const content = await fetchFileContent(owner, repo, cfg);
+    if (content && (content.includes('nosniff') || content.includes('X-Content-Type-Options'))) {
+      hasNosniff = true;
+      break;
+    }
+  }
+  results.push(
+    hasNosniff
+      ? { status: 'pass', message: 'X-Content-Type-Options: nosniff found \u2014 MIME sniffing protection enabled' }
+      : { status: 'warn', message: 'No X-Content-Type-Options: nosniff found \u2014 browser may MIME-sniff responses' }
+  );
+
+  // 4. HSTS
+  let hasHSTS = false;
+  for (const cfg of configFiles) {
+    const content = await fetchFileContent(owner, repo, cfg);
+    if (content && (content.includes('Strict-Transport-Security') || content.includes('HSTS') || content.includes('hsts'))) {
+      hasHSTS = true;
+      break;
+    }
+  }
+  results.push(
+    hasHSTS
+      ? { status: 'pass', message: 'HSTS (Strict-Transport-Security) configured' }
+      : { status: 'warn', message: 'No HSTS header found \u2014 users may connect over HTTP instead of HTTPS' }
+  );
+
+  // 5. Mixed content: http://
+  let hasMixed = false;
+  let mixedFile: string | undefined;
+  for (const file of clientFiles) {
+    const content = await fetchFileContent(owner, repo, file);
+    if (!content) continue;
+    const matches = content.match(/http:\/\/[^\s"'`)*]+/g);
+    if (matches && matches.some(u => !u.includes('localhost') && !u.includes('127.0.0.1'))) {
+      hasMixed = true;
+      mixedFile = file;
+      break;
+    }
+  }
+  results.push(
+    hasMixed
+      ? { status: 'warn', message: 'http:// URLs found \u2014 mixed content vulnerability', file: mixedFile }
+      : { status: 'pass', message: 'No mixed content (http:// URLs) detected in source' }
+  );
+
+  // 6. CSRF protection
+  const csrfPatterns = ['csrf', 'CSRF', 'csrfToken', 'xsrf', 'XSRF', 'SameSite', 'sameSite', 'doubleSubmit'];
+  let hasCSRF = false;
+  for (const file of clientFiles) {
+    const content = await fetchFileContent(owner, repo, file);
+    if (content && csrfPatterns.some(p => content.includes(p))) {
+      hasCSRF = true;
+      break;
+    }
+  }
+  results.push(
+    hasCSRF
+      ? { status: 'pass', message: 'CSRF protection detected (token or SameSite cookie)' }
+      : { status: 'warn', message: 'No CSRF protection detected \u2014 forms and API mutations may be vulnerable to cross-site requests' }
+  );
+
+  // 7. Debug mode
+  let hasDebug = false;
+  let debugFile: string | undefined;
+  for (const file of clientFiles) {
+    const content = await fetchFileContent(owner, repo, file);
+    if (!content) continue;
+    for (const line of content.split('\n')) {
+      if ((line.includes('debug: true') || line.includes('debug = true') || line.includes('isDebug = true')) && !line.trim().startsWith('//')) {
+        hasDebug = true;
+        debugFile = file;
+        break;
+      }
+    }
+    if (hasDebug) break;
+  }
+  results.push(
+    hasDebug
+      ? { status: 'warn', message: 'Debug mode enabled in source \u2014 may expose sensitive info in production', file: debugFile }
+      : { status: 'pass', message: 'No debug mode flags detected in source' }
+  );
+
+  // 8. .gitignore hygiene
+  const gitignore = await fetchFile(owner, repo, '.gitignore');
+  if (gitignore) {
+    const expected = ['.next', 'dist', 'build', '.env.local', 'coverage', '.turbo'];
+    const missing = expected.filter(e => !gitignore.includes(e));
+    results.push(
+      missing.length === 0
+        ? { status: 'pass', message: 'All common build artifacts are gitignored' }
+        : { status: 'warn', message: `Build artifacts not gitignored: ${missing.join(', ')}` }
+    );
+  }
+
+  return results;
+}
+
 async function runWebChecks(owner: string, repo: string): Promise<ScanCheck[]> {
   const results: ScanCheck[] = [];
 
@@ -322,6 +470,7 @@ export async function scanGitHubRepo(input: string): Promise<ScanReport> {
     };
   }
 
+  const allFiles = await listFiles(owner, repo);
   const categories: ScanCategory[] = [];
   categories.push({ name: 'Security', checks: await runSecurityChecks(owner, repo) });
   categories.push({ name: 'Authentication', checks: await runAuthChecks(owner, repo) });
@@ -329,6 +478,7 @@ export async function scanGitHubRepo(input: string): Promise<ScanReport> {
   categories.push({ name: 'Database', checks: await runDatabaseChecks(owner, repo) });
   categories.push({ name: 'API & Validation', checks: await runApiChecks(owner, repo) });
   categories.push({ name: 'Web Security', checks: await runWebChecks(owner, repo) });
+  categories.push({ name: 'Vulnerabilities', checks: await runVulnerabilityChecks(owner, repo, allFiles) });
 
   return { repo: `${owner}/${repo}`, categories };
 }
