@@ -67,6 +67,7 @@ let scanning = false;
 let scanError: string | null = null;
 let scanProgress: { stage: string; completed: number; total: number } | null = null;
 let abortController: AbortController | null = null;
+let githubToken: string = sessionStorage.getItem('gh_token') || '';
 function fixSuggestion(check: { status: string; message: string; file?: string; line?: number }): string {
   const msg = check.message.toLowerCase();
   if (msg.includes('service_role') || msg.includes('service role')) return 'Move to a server-only environment variable and create an API route that proxies requests server-side.';
@@ -242,12 +243,12 @@ function ScanBox(): HTMLElement {
       scanReport = await scanGitHubRepo(url, abortController.signal, (stage, completed, total) => {
         scanProgress = { stage, completed, total };
         renderResults();
-      });
+      }, githubToken || undefined);
     } catch (err) {
       if (err instanceof ScanAbortedError) {
         scanError = "Scan cancelled.";
       } else if ((err as any)?.status === 403 || (err as any)?.status === 429) {
-        scanError = "GitHub API rate limit reached. Try again in about an hour, or use \u2018npx @preflight-agent/cli scan\u2019 locally for unlimited scanning.";
+        scanError = "GitHub API rate limit reached. Add a fine-grained personal access token below for 5,000 requests/hour, or use \u2018npx @preflight-agent/cli scan\u2019 locally.";
       } else {
         scanError = "Something went wrong. Check the URL and try again.";
       }
@@ -267,6 +268,36 @@ function ScanBox(): HTMLElement {
 
   const note = el("p", { class: "text-[12px] text-[var(--color-text-3)] mt-3" }, ["Public repos only. Everything runs in your browser — nothing is uploaded or stored."]);
   container.appendChild(note);
+
+  // Token input
+  const tokenRow = el("div", { class: "mt-4 flex items-center gap-3" });
+  const tokenInput = el("input", {
+    id: "token-input",
+    type: "password",
+    placeholder: "GitHub token (optional \u2014 5,000 req/hr)",
+    class: "field flex-1 px-4 py-2.5 text-[13px]",
+    value: githubToken,
+  }) as HTMLInputElement;
+
+  const showToggle = el("button", {
+    class: "btn-secondary text-[12px] px-3 py-2 rounded-full shrink-0",
+    type: "button",
+  }, ["Show"]) as HTMLButtonElement;
+
+  showToggle.addEventListener("click", () => {
+    const isPassword = tokenInput.type === "password";
+    tokenInput.type = isPassword ? "text" : "password";
+    showToggle.textContent = isPassword ? "Hide" : "Show";
+  });
+
+  tokenInput.addEventListener("input", () => {
+    githubToken = tokenInput.value.trim();
+    sessionStorage.setItem('gh_token', githubToken);
+  });
+
+  tokenRow.appendChild(tokenInput);
+  tokenRow.appendChild(showToggle);
+  container.appendChild(tokenRow);
 
   return container;
 }

@@ -39,16 +39,18 @@ class ScanContext {
   owner: string;
   repo: string;
   signal?: AbortSignal;
+  token?: string;
   private cache = new Map<string, string | null>();
   private pending = 0;
   private queue: (() => void)[] = [];
   private static MAX_CONCURRENCY = 5;
   private static DELAY_MS = 80;
 
-  constructor(owner: string, repo: string, signal?: AbortSignal) {
+  constructor(owner: string, repo: string, signal?: AbortSignal, token?: string) {
     this.owner = owner;
     this.repo = repo;
     this.signal = signal;
+    this.token = token;
   }
 
   private async acquire(): Promise<void> {
@@ -86,6 +88,7 @@ class ScanContext {
     try {
       const opts: RequestInit = {};
       if (this.signal) opts.signal = this.signal;
+      if (this.token) opts.headers = { Authorization: `Bearer ${this.token}` };
       const res = await fetch(url, opts);
       await new Promise(r => setTimeout(r, ScanContext.DELAY_MS));
 
@@ -556,6 +559,7 @@ export async function scanGitHubRepo(
   input: string,
   signal?: AbortSignal,
   onProgress?: ScanProgressHandler,
+  token?: string,
 ): Promise<ScanReport> {
   const parsed = parseGitHubUrl(input);
   if (!parsed) {
@@ -569,7 +573,7 @@ export async function scanGitHubRepo(
   }
 
   const { owner, repo } = parsed;
-  const ctx = new ScanContext(owner, repo, signal);
+  const ctx = new ScanContext(owner, repo, signal, token);
 
   let repoInfo: any;
   try {
