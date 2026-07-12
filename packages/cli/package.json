@@ -1,5 +1,5 @@
 {
-  "name": "@agent-preflight/cli",
+  "name": "@preflight-agent/cli",
   "version": "0.1.0",
   "description": "Pre-deploy checklist CLI for vibe coders",
   "main": "dist/index.js",

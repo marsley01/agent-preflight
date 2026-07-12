@@ -4,7 +4,7 @@
 Catch the bugs AI agents introduce before they hit production.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![npm version](https://img.shields.io/npm/v/@agent-preflight/cli)](https://npmjs.com/package/@agent-preflight/cli)
+[![npm version](https://img.shields.io/npm/v/@preflight-agent/cli)](https://npmjs.com/package/@preflight-agent/cli)
 
 ---
 
@@ -26,7 +26,7 @@ code — but they consistently miss the same things:
 ## Quick Start
 
 ```bash
-npx @agent-preflight/cli scan
+npx @preflight-agent/cli scan
 ```
 
 Run it from any project root. It scans your code and outputs a scored report.
@@ -67,10 +67,10 @@ Score: 6/10 — Fix 2 critical issues before deploying.
 
 ```bash
 # Run without installing
-npx @agent-preflight/cli scan
+npx @preflight-agent/cli scan
 
 # Or install globally
-npm install -g @agent-preflight/cli
+npm install -g @preflight-agent/cli
 preflight scan
 ```
 

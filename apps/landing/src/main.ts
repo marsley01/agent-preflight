@@ -470,7 +470,7 @@ function GetStarted(): HTMLElement {
 
   const codeBlock = el("div", { class: "code-block mb-10 inline-block text-left" }, [
     el("span", { class: "text-[var(--color-text-3)]" }, ["$ "]),
-    el("span", { class: "highlight" }, ["npx @agent-preflight/cli scan"]),
+    el("span", { class: "highlight" }, ["npx @preflight-agent/cli scan"]),
   ]);
 
   const linkRow = el("div", { class: "flex items-center justify-center gap-4 flex-wrap" });
@@ -504,7 +504,7 @@ function Footer(): HTMLElement {
     class: "hover:text-[var(--color-text)] transition-colors",
   }, ["GitHub"]);
   const npmLink = el("a", {
-    href: "https://npmjs.com/package/@agent-preflight/cli",
+    href: "https://npmjs.com/package/@preflight-agent/cli",
     target: "_blank",
     class: "hover:text-[var(--color-text)] transition-colors",
   }, ["npm"]);
