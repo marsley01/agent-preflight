@@ -299,6 +299,23 @@ function ScanBox(): HTMLElement {
   tokenRow.appendChild(showToggle);
   container.appendChild(tokenRow);
 
+  // Quick Demo
+  const demoRow = el("div", { class: "mt-6 pt-6 border-t border-[var(--color-border)] flex items-center justify-between" });
+  const demoLabel = el("span", { class: "text-[12px] font-medium text-[var(--color-text-3)]" }, ["Or try a demo scan:"]);
+  const demoBtn = el("button", {
+    class: "text-[13px] font-medium text-[var(--color-accent)] hover:opacity-70 transition-opacity",
+    type: "button",
+  }, ["View live example"]);
+
+  demoBtn.addEventListener("click", () => {
+    input.value = "https://github.com/vitejs/vite";
+    scanBtn.click();
+  });
+
+  demoRow.appendChild(demoLabel);
+  demoRow.appendChild(demoBtn);
+  container.appendChild(demoRow);
+
   return container;
 }
 
