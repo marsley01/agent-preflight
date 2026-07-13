@@ -6,9 +6,19 @@ import type {
   CategoryId,
   CheckResult,
   CheckDefinition,
-  AppSettings,
 } from '@shared/types';
 import { getCheckById } from '@shared/checks/index';
+
+interface ThreatItem {
+  package: string;
+  vulnerability_type: string;
+  cve_id: string;
+  severity: string;
+  description: string;
+  fix_snippet: string;
+  source: string;
+  published: string;
+}
 
 interface ScanStore {
   // Scan state
@@ -17,18 +27,26 @@ interface ScanStore {
   progress: ScanProgress | null;
   error: string | null;
 
+  // Terminal logs
+  terminalLogs: string[];
+  addTerminalLog: (line: string) => void;
+  clearTerminalLogs: () => void;
+
   // Inspector
   inspector: InspectorState;
 
   // History
   history: ScanReport[];
 
-  // Settings
-  settings: AppSettings;
-
   // GitHub input
   repoInput: string;
   githubToken: string;
+
+  // Live intelligence
+  threats: ThreatItem[];
+  setThreats: (t: ThreatItem[]) => void;
+  threatLoading: boolean;
+  setThreatLoading: (l: boolean) => void;
 
   // Actions
   setReport: (report: ScanReport | null) => void;
@@ -40,7 +58,6 @@ interface ScanStore {
   addToHistory: (report: ScanReport) => void;
   setRepoInput: (input: string) => void;
   setGithubToken: (token: string) => void;
-  updateSettings: (settings: Partial<AppSettings>) => void;
 }
 
 export const useScanStore = create<ScanStore>((set, get) => ({
@@ -49,12 +66,21 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   progress: null,
   error: null,
 
+  terminalLogs: [],
+  addTerminalLog: (line) =>
+    set((state) => ({ terminalLogs: [...state.terminalLogs, line].slice(-200) })),
+  clearTerminalLogs: () => set({ terminalLogs: [] }),
+
   inspector: { isOpen: false, check: null, categoryId: null, definition: null },
 
   history: [],
-  settings: { githubToken: '', theme: 'dark', scanOnOpen: false },
   repoInput: '',
   githubToken: typeof window !== 'undefined' ? sessionStorage.getItem('gh_token') || '' : '',
+
+  threats: [],
+  setThreats: (threats) => set({ threats }),
+  threatLoading: false,
+  setThreatLoading: (threatLoading) => set({ threatLoading }),
 
   setReport: (report) => set({ report }),
   setIsScanning: (isScanning) => set({ isScanning }),
@@ -80,9 +106,5 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   setGithubToken: (token) => {
     sessionStorage.setItem('gh_token', token);
     set({ githubToken: token });
-  },
-
-  updateSettings: (partial) => {
-    set((state) => ({ settings: { ...state.settings, ...partial } }));
   },
 }));

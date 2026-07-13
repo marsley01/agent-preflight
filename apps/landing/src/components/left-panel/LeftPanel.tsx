@@ -8,7 +8,6 @@ import {
   Settings,
   Search,
   ChevronRight,
-  Plus,
 } from 'lucide-react';
 import { useScanStore } from '../../store/scan-store';
 
@@ -16,7 +15,7 @@ interface NavItem {
   id: string;
   label: string;
   icon: typeof FolderGit2;
-  badge?: string | number;
+  badge?: string;
 }
 
 const navGroups: { label: string; items: NavItem[] }[] = [
@@ -24,7 +23,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'Workspace',
     items: [
       { id: 'projects', label: 'Projects', icon: FolderGit2 },
-      { id: 'scans', label: 'Scan History', icon: History, badge: 0 },
+      { id: 'scans', label: 'Scan History', icon: History },
       { id: 'branches', label: 'Branches', icon: GitBranch },
     ],
   },
@@ -40,16 +39,20 @@ const navGroups: { label: string; items: NavItem[] }[] = [
 export function LeftPanel() {
   const [active, setActive] = useState('projects');
   const history = useScanStore((s) => s.history);
-  const report = useScanStore((s) => s.report);
 
-  navGroups[0].items[1].badge = history.length || undefined;
+  const badges: Record<string, string | undefined> = {
+    scans: history.length > 0 ? String(history.length) : undefined,
+  };
 
   return (
-    <aside className="w-[240px] border-r border-base-800 bg-base-950 flex flex-col flex-shrink-0 overflow-y-auto">
+    <aside
+      className="w-[240px] border-r flex flex-col flex-shrink-0 overflow-y-auto"
+      style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-base)' }}
+    >
       {/* Search */}
       <div className="p-3">
         <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-base-600" />
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
           <input
             type="text"
             placeholder="Search projects..."
@@ -62,30 +65,37 @@ export function LeftPanel() {
       <nav className="flex-1 px-2 pb-3">
         {navGroups.map((group) => (
           <div key={group.label} className="mb-4">
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-base-600">
+            <div
+              className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
+              style={{ color: 'var(--text-tertiary)' }}
+            >
               {group.label}
             </div>
             {group.items.map((item) => {
               const Icon = item.icon;
               const isActive = active === item.id;
+              const badge = badges[item.id];
               return (
                 <button
                   key={item.id}
                   onClick={() => setActive(item.id)}
-                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
-                    isActive
-                      ? 'bg-base-800 text-base-100'
-                      : 'text-base-400 hover:text-base-200 hover:bg-base-800/50'
-                  }`}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors"
+                  style={{
+                    background: isActive ? 'var(--bg-hover)' : 'transparent',
+                    color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  }}
                 >
                   <Icon size={15} className="flex-shrink-0" />
                   <span className="flex-1 text-left">{item.label}</span>
-                  {item.badge !== undefined && (
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-base-800 text-base-400">
-                      {item.badge}
+                  {badge && (
+                    <span
+                      className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                      style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}
+                    >
+                      {badge}
                     </span>
                   )}
-                  {isActive && <ChevronRight size={12} className="text-base-500" />}
+                  {isActive && <ChevronRight size={12} style={{ color: 'var(--text-tertiary)' }} />}
                 </button>
               );
             })}
@@ -95,29 +105,32 @@ export function LeftPanel() {
         {/* Recent Scans */}
         {history.length > 0 && (
           <div>
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-base-600">
+            <div
+              className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
+              style={{ color: 'var(--text-tertiary)' }}
+            >
               Recent Scans
             </div>
             {history.slice(0, 5).map((scan) => (
               <button
                 key={scan.id}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] text-base-400 hover:text-base-200 hover:bg-base-800/50 transition-colors"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 <div
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    scan.status === 'complete'
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{
+                    background: scan.status === 'complete'
                       ? scan.score.percentage >= 75
-                        ? 'bg-emerald-500'
+                        ? 'var(--accent-emerald)'
                         : scan.score.percentage >= 50
-                          ? 'bg-amber-500'
-                          : 'bg-red-500'
-                      : scan.status === 'error'
-                        ? 'bg-red-500'
-                        : 'bg-base-600'
-                  }`}
+                          ? 'var(--accent-amber)'
+                          : 'var(--accent-rose)'
+                      : 'var(--text-tertiary)',
+                  }}
                 />
                 <span className="flex-1 text-left truncate">{scan.repoName}</span>
-                <span className="text-[10px] text-base-600">
+                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
                   {scan.score.percentage}%
                 </span>
               </button>
@@ -127,8 +140,11 @@ export function LeftPanel() {
       </nav>
 
       {/* Bottom: Settings */}
-      <div className="border-t border-base-800 p-2">
-        <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] text-base-400 hover:text-base-200 hover:bg-base-800/50 transition-colors">
+      <div className="border-t p-2" style={{ borderColor: 'var(--border-subtle)' }}>
+        <button
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[13px] transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
+        >
           <Settings size={15} />
           <span>Settings</span>
         </button>

@@ -4,6 +4,8 @@ import { ScanProgress } from './ScanProgress';
 import { ScoreOverview } from './ScoreOverview';
 import { CategorySection } from './CategorySection';
 import { ChecklistSummary } from './ChecklistSummary';
+import { ScanTerminal } from './ScanTerminal';
+import { LiveFeed } from '../shared/LiveFeed';
 
 export function CenterPanel() {
   const report = useScanStore((s) => s.report);
@@ -13,22 +15,28 @@ export function CenterPanel() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[900px] mx-auto px-8 py-6 space-y-6">
+        <div className="max-w-[960px] mx-auto px-8 py-6 space-y-6">
           {/* Scan Input - always visible */}
           <ScanInput />
 
           {/* Error State */}
           {error && !isScanning && (
-            <div className="panel p-4 border-red-500/30 bg-red-500/5 animate-fadeIn">
+            <div
+              className="panel p-4 animate-fadeIn"
+              style={{ borderColor: 'var(--accent-rose-border)', background: 'var(--accent-rose-bg)' }}
+            >
               <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
+                <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: 'var(--accent-rose)' }} />
                 <div>
-                  <div className="text-[13px] font-semibold text-red-400 mb-1">Scan Failed</div>
-                  <div className="text-[13px] text-base-400">{error}</div>
+                  <div className="text-[13px] font-semibold mb-1" style={{ color: 'var(--accent-rose)' }}>Scan Failed</div>
+                  <div className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error}</div>
                 </div>
               </div>
             </div>
           )}
+
+          {/* Terminal logs — shown during scan or after */}
+          <ScanTerminal />
 
           {/* Scan Progress */}
           {isScanning && <ScanProgress />}
@@ -43,6 +51,9 @@ export function CenterPanel() {
               ))}
             </>
           )}
+
+          {/* Live Intelligence Feed */}
+          <LiveFeed />
         </div>
       </div>
     </div>
