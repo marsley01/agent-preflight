@@ -32,9 +32,9 @@ export function ScanProgress() {
       </div>
 
       {/* Progress bar */}
-      <div className="h-1 bg-base-800 rounded-full overflow-hidden">
+      <div className="h-1" style={{ background: 'var(--border-subtle)', borderRadius: '4px', overflow: 'hidden' }}>
         <motion.div
-          className="h-full bg-blue-500 rounded-full"
+          className="h-full" style={{ background: 'var(--accent-blue)', borderRadius: '4px' }}
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -59,7 +59,7 @@ export function ScanProgress() {
               <div className="relative w-4 h-4 flex items-center justify-center">
                 {state === 'active' && (
                   <motion.div
-                    className="w-2 h-2 rounded-full bg-blue-500"
+                    className="w-2 h-2" style={{ background: 'var(--accent-blue)', borderRadius: '4px' }}
                     animate={{ opacity: [0.4, 1, 0.4] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                   />
@@ -70,7 +70,7 @@ export function ScanProgress() {
                   </svg>
                 )}
                 {state === 'pending' && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-base-700" />
+                  <div className="w-1.5 h-1.5" style={{ background: 'var(--border-subtle)', borderRadius: '4px' }} />
                 )}
               </div>
               <span className="text-[12px]">{SCAN_STAGE_LABELS[s]}</span>

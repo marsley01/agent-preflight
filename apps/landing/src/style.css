@@ -47,13 +47,13 @@
 }
 
 /* ============================================================
-   LIGHT THEME
+   LIGHT THEME — neutral-50 canvas, white panels, neutral-200 borders
    ============================================================ */
 [data-theme="light"] {
-  --bg-base: #f5f5f5;
+  --bg-base: #fafafa;
   --bg-panel: #ffffff;
-  --bg-surface: #fafafa;
-  --bg-hover: #f0f0f0;
+  --bg-surface: #ffffff;
+  --bg-hover: #f5f5f5;
   --bg-elevated: #ffffff;
   --bg-input: #ffffff;
 

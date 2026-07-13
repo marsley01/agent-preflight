@@ -1,5 +1,4 @@
 import { useScanStore } from '../../store/scan-store';
-import { ScanInput } from './ScanInput';
 import { ScanProgress } from './ScanProgress';
 import { ScoreOverview } from './ScoreOverview';
 import { CategorySection } from './CategorySection';
@@ -15,10 +14,7 @@ export function CenterPanel() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[960px] mx-auto px-8 py-6 space-y-6">
-          {/* Scan Input - always visible */}
-          <ScanInput />
-
+        <div className="px-6 py-5 space-y-5">
           {/* Error State */}
           {error && !isScanning && (
             <div
@@ -26,7 +22,7 @@ export function CenterPanel() {
               style={{ borderColor: 'var(--accent-rose-border)', background: 'var(--accent-rose-bg)' }}
             >
               <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: 'var(--accent-rose)' }} />
+                <div className="w-2 h-2 mt-1.5 flex-shrink-0" style={{ background: 'var(--accent-rose)', borderRadius: '4px' }} />
                 <div>
                   <div className="text-[13px] font-semibold mb-1" style={{ color: 'var(--accent-rose)' }}>Scan Failed</div>
                   <div className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error}</div>

@@ -154,7 +154,7 @@ export function ScoreOverview() {
             <div className="space-y-1.5">
               {pieData.map(d => (
                 <div key={d.name} className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }} />
+                  <div className="w-2 h-2" style={{ backgroundColor: d.color, borderRadius: '4px' }} />
                   <span className="text-[11px] w-14" style={{ color: T.text }}>{d.name}</span>
                   <span className="text-[12px] font-semibold" style={{ color: T.textPrimary }}>{d.value}</span>
                 </div>

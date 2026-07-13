@@ -20,7 +20,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 export function LiveFeed() {
-  const { threats, setThreats, threatLoading, setThreatLoading } = useScanStore();
+  const { threats, setThreats, threatLoading, setThreatLoading, setSelectedThreat } = useScanStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -33,7 +33,6 @@ export function LiveFeed() {
           setThreats(data.items || []);
         }
       } catch {
-        // engine not running — use fallback static data
         setThreats(FALLBACK_THREATS);
       } finally {
         setThreatLoading(false);
@@ -49,7 +48,7 @@ export function LiveFeed() {
   }, [setThreats, setThreatLoading]);
 
   return (
-    <div className="panel overflow-hidden animate-fadeIn" style={{ maxHeight: '400px' }}>
+    <div className="panel overflow-hidden animate-fadeIn">
       <div
         className="flex items-center gap-2 px-4 py-2.5 border-b text-[11px] font-semibold uppercase tracking-wider"
         style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-tertiary)' }}
@@ -58,13 +57,13 @@ export function LiveFeed() {
         Live Intelligence Feed
         {threatLoading && (
           <span className="flex items-center gap-1 ml-auto text-[10px] font-normal normal-case" style={{ color: 'var(--accent-emerald)' }}>
-            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            <span className="w-1.5 h-1.5 animate-pulse" style={{ background: 'var(--accent-emerald)', borderRadius: '4px' }} />
             live
           </span>
         )}
       </div>
 
-      <div className="overflow-y-auto" style={{ maxHeight: '340px' }}>
+      <div className="divide-y" style={{ maxHeight: '420px', overflowY: 'auto', borderColor: 'var(--border-subtle)' }}>
         {threats.length === 0 ? (
           <div className="px-4 py-8 text-center text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
             {threatLoading ? 'Loading threat intelligence...' : 'No threats loaded. Start the vulnerability engine on port 8412.'}
@@ -74,12 +73,13 @@ export function LiveFeed() {
             const SourceIcon = SOURCE_ICONS[threat.source] || Shield;
             const severityColor = SEVERITY_COLORS[threat.severity] || 'var(--text-tertiary)';
             return (
-              <div
+              <button
                 key={`${threat.cve_id}-${idx}`}
-                className="flex items-start gap-3 px-4 py-2.5 border-b text-left hover:opacity-80 transition-opacity"
+                onClick={() => setSelectedThreat(threat)}
+                className="w-full flex items-start gap-3 px-4 py-2.5 text-left hover:opacity-80 transition-opacity"
                 style={{ borderColor: 'var(--border-subtle)' }}
               >
-                <div className="mt-0.5" style={{ color: severityColor }}>
+                <div className="mt-0.5 flex-shrink-0" style={{ color: severityColor }}>
                   <SourceIcon size={13} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -88,18 +88,20 @@ export function LiveFeed() {
                       {threat.cve_id}
                     </span>
                     <span
-                      className="text-[9px] font-medium px-1 py-0.5 rounded uppercase"
+                      className="text-[9px] font-medium px-1 py-0.5 uppercase flex-shrink-0"
                       style={{
                         background: `${severityColor}15`,
                         color: severityColor,
                         border: `1px solid ${severityColor}30`,
+                        borderRadius: '4px',
                       }}
                     >
                       {threat.severity}
                     </span>
                   </div>
                   <div className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    {threat.description.slice(0, 120)}...
+                    {threat.description.slice(0, 140)}
+                    {threat.description.length > 140 ? '...' : ''}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-[9px] font-medium font-mono" style={{ color: 'var(--text-tertiary)' }}>
@@ -110,7 +112,7 @@ export function LiveFeed() {
                     </span>
                   </div>
                 </div>
-              </div>
+              </button>
             );
           })
         )}

@@ -49,6 +49,8 @@ interface ScanStore {
   setThreats: (t: ThreatItem[]) => void;
   threatLoading: boolean;
   setThreatLoading: (l: boolean) => void;
+  selectedThreat: ThreatItem | null;
+  setSelectedThreat: (t: ThreatItem | null) => void;
 
   // Supabase sync
   syncing: boolean;
@@ -94,6 +96,8 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   setThreats: (threats) => set({ threats }),
   threatLoading: false,
   setThreatLoading: (threatLoading) => set({ threatLoading }),
+  selectedThreat: null,
+  setSelectedThreat: (selectedThreat) => set({ selectedThreat }),
 
   setReport: (report) => set({ report }),
   setIsScanning: (isScanning) => set({ isScanning }),
@@ -106,7 +110,7 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   },
 
   closeInspector: () => {
-    set({ inspector: { isOpen: false, check: null, categoryId: null, definition: null } });
+    set({ inspector: { isOpen: false, check: null, categoryId: null, definition: null }, selectedThreat: null });
   },
 
   addToHistory: (report) => {
