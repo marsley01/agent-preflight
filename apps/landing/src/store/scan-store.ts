@@ -8,6 +8,8 @@ import type {
   CheckDefinition,
 } from '@shared/types';
 import { getCheckById } from '@shared/checks/index';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { persistReport, persistHistory, loadHistory, loadReport as loadReportFromDb } from './supabase-store';
 
 interface ThreatItem {
   package: string;
@@ -48,6 +50,10 @@ interface ScanStore {
   threatLoading: boolean;
   setThreatLoading: (l: boolean) => void;
 
+  // Supabase sync
+  syncing: boolean;
+  syncError: string | null;
+
   // Actions
   setReport: (report: ScanReport | null) => void;
   setIsScanning: (scanning: boolean) => void;
@@ -58,6 +64,11 @@ interface ScanStore {
   addToHistory: (report: ScanReport) => void;
   setRepoInput: (input: string) => void;
   setGithubToken: (token: string) => void;
+
+  // Supabase actions
+  syncToSupabase: (report: ScanReport) => Promise<void>;
+  loadHistoryFromSupabase: () => Promise<void>;
+  loadReportById: (id: string) => Promise<ScanReport | null>;
 }
 
 export const useScanStore = create<ScanStore>((set, get) => ({
@@ -65,6 +76,8 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   isScanning: false,
   progress: null,
   error: null,
+  syncing: false,
+  syncError: null,
 
   terminalLogs: [],
   addTerminalLog: (line) =>
@@ -97,14 +110,55 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   },
 
   addToHistory: (report) => {
-    set((state) => ({
-      history: [report, ...state.history].slice(0, 50),
-    }));
+    set((state) => {
+      const updated = [report, ...state.history].slice(0, 50);
+      if (isSupabaseConfigured()) {
+        persistReport(report);
+        persistHistory(report);
+      }
+      return { history: updated };
+    });
   },
 
   setRepoInput: (repoInput) => set({ repoInput }),
   setGithubToken: (token) => {
     sessionStorage.setItem('gh_token', token);
     set({ githubToken: token });
+  },
+
+  syncToSupabase: async (report) => {
+    if (!isSupabaseConfigured()) return;
+    set({ syncing: true, syncError: null });
+    try {
+      await persistReport(report);
+      await persistHistory(report);
+    } catch (e) {
+      set({ syncError: e instanceof Error ? e.message : 'Sync failed' });
+    } finally {
+      set({ syncing: false });
+    }
+  },
+
+  loadHistoryFromSupabase: async () => {
+    if (!isSupabaseConfigured()) return;
+    set({ syncing: true, syncError: null });
+    try {
+      const reports = await loadHistory();
+      if (reports.length > 0) {
+        set({ history: reports });
+      }
+    } catch (e) {
+      set({ syncError: e instanceof Error ? e.message : 'Load failed' });
+    } finally {
+      set({ syncing: false });
+    }
+  },
+
+  loadReportById: async (id) => {
+    try {
+      return await loadReportFromDb(id);
+    } catch {
+      return null;
+    }
   },
 }));

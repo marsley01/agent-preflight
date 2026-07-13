@@ -14,4 +14,5 @@ export { runApiChecks } from './api';
 export { runWebChecks } from './web';
 export { runGraphqlChecks } from './graphql';
 export { runRealtimeChecks } from './realtime';
+export { runSupabaseChecks } from './supabase';
 export { runVulnerabilityChecks } from './vulnerabilities';

@@ -374,13 +374,128 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   }
 
   const hasSqlFiles = ctx.allFilePaths.some(f => f.endsWith('.sql'));
-  const hasRls = /row level security|enable rls|CREATE POLICY/.test(allContentJoined);
+  const hasRls = /row level security|enable rls|CREATE POLICY/i.test(allContentJoined);
   results.push({
     checkId: 'security-rls-enabled',
     status: hasSqlFiles && hasRls ? 'pass' : (hasSqlFiles ? 'fail' : 'warn'),
     message: hasSqlFiles && hasRls ? 'Row Level Security enabled in migrations' :
       hasSqlFiles ? 'No RLS policies found in SQL migrations' : 'No SQL migrations found',
   });
+
+  // --- Supabase-specific checks ---
+  const hasSupabase = /supabase/i.test(allContentJoined);
+  const sqlContent = ctx.allFilePaths
+    .filter(f => f.endsWith('.sql'))
+    .map(f => ctx.files.get(f))
+    .filter(Boolean)
+    .join('\n');
+
+  // 1. Supabase service_role key in client-side code (enhanced)
+  let foundServiceKey = false;
+  for (const filePath of suspiciousFiles) {
+    const content = ctx.files.get(filePath);
+    if (content && /supabase.*service_role/i.test(content) && !/\/\/|service_role_key_in_env|VITE_SUPABASE_SERVICE_KEY/.test(content)) {
+      results.push({
+        checkId: 'security-supabase-service-key-exposure',
+        status: 'fail',
+        message: 'Supabase service_role key found in client-side code — full database access exposed',
+        file: filePath,
+      });
+      foundServiceKey = true;
+    }
+  }
+  if (!foundServiceKey && hasSupabase) {
+    results.push({
+      checkId: 'security-supabase-service-key-exposure',
+      status: 'pass',
+      message: 'No Supabase service_role key detected in client-side code',
+    });
+  }
+
+  // 2. RLS policy completeness — UPDATE with WITH CHECK
+  if (sqlContent) {
+    const updatePolicies = sqlContent.match(/CREATE\s+POLICY.*FOR\s+UPDATE/gi);
+    const withUpdateCheck = sqlContent.match(/CREATE\s+POLICY[\s\S]*?FOR\s+UPDATE[\s\S]*?WITH\s+CHECK/gi);
+    const hasUpdatePolicies = updatePolicies && updatePolicies.length > 0;
+    const hasWithCheck = withUpdateCheck && withUpdateCheck.length > 0;
+
+    if (hasUpdatePolicies) {
+      results.push({
+        checkId: 'security-supabase-rls-policy-completeness',
+        status: hasWithCheck ? 'pass' : 'fail',
+        message: hasWithCheck
+          ? 'UPDATE policies include WITH CHECK clauses'
+          : 'UPDATE policies missing WITH CHECK — users can reassign row ownership',
+      });
+    } else if (hasRls) {
+      results.push({
+        checkId: 'security-supabase-rls-policy-completeness',
+        status: 'info',
+        message: 'No UPDATE policies found — verify DELETE policies have WITH CHECK if applicable',
+      });
+    }
+  }
+
+  // 3. auth.role() deprecated usage
+  const hasAuthRoleDeprecated = /auth\.role\s*\(/.test(allContentJoined);
+  if (hasSupabase) {
+    results.push({
+      checkId: 'security-supabase-auth-role-deprecated',
+      status: hasAuthRoleDeprecated ? 'fail' : 'pass',
+      message: hasAuthRoleDeprecated
+        ? 'auth.role() detected — this is deprecated and breaks with anonymous sign-ins'
+        : 'auth.role() not detected — USING TO clause instead',
+    });
+  }
+
+  // 4. View security_invoker
+  if (sqlContent) {
+    const hasViews = /CREATE\s+(OR\s+REPLACE\s+)?VIEW/i.test(sqlContent);
+    const hasSecurityInvoker = /security_invoker\s*=\s*true/i.test(sqlContent);
+    if (hasViews) {
+      results.push({
+        checkId: 'security-supabase-view-security-invoker',
+        status: hasSecurityInvoker ? 'pass' : 'fail',
+        message: hasSecurityInvoker
+          ? 'Views use WITH (security_invoker = true)'
+          : 'Views found without security_invoker — they bypass RLS by default',
+      });
+    }
+  }
+
+  // 5. Storage RLS
+  if (hasSupabase) {
+    const hasStorage = /storage|bucket/i.test(allContentJoined);
+    const hasStorageRls = /storage.*rls|bucket.*rls|storage.*policy|bucket.*policy|create\s+policy.*storage/i.test(allContentJoined);
+    if (hasStorage) {
+      results.push({
+        checkId: 'security-supabase-storage-rls',
+        status: hasStorageRls ? 'pass' : 'warn',
+        message: hasStorageRls
+          ? 'Storage bucket RLS policies detected'
+          : 'Storage usage detected but no bucket-level RLS policies found',
+      });
+    }
+  }
+
+  // 6. Missing SELECT policy on RLS tables
+  if (sqlContent && hasRls) {
+    const createTableStatements = sqlContent.match(/CREATE\s+TABLE\s+\w+/gi) || [];
+    const selectPolicies = sqlContent.match(/CREATE\s+POLICY[\s\S]*?FOR\s+SELECT/gi) || [];
+    if (createTableStatements.length > selectPolicies.length) {
+      results.push({
+        checkId: 'security-supabase-missing-select-policy',
+        status: 'warn',
+        message: `${createTableStatements.length} tables, ${selectPolicies.length} SELECT policies — some tables may lack SELECT access after RLS enablement`,
+      });
+    } else if (createTableStatements.length > 0) {
+      results.push({
+        checkId: 'security-supabase-missing-select-policy',
+        status: 'pass',
+        message: 'SELECT policies found for all detected tables',
+      });
+    }
+  }
 
   return results;
 }
