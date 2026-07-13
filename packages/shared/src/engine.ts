@@ -52,6 +52,7 @@ async function loadRepository(
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
+  // 1. Get repo info + default branch
   const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
   const repoRes = await fetchWithRetry(repoUrl, { headers, signal });
   if (!repoRes.ok) {
@@ -60,15 +61,42 @@ async function loadRepository(
     throw new Error(`Failed to fetch repository: ${repoRes.statusText}`);
   }
   const repoInfo = await repoRes.json();
+  const defaultBranch = repoInfo.default_branch || 'main';
+
+  // 2. Get full file tree in ONE API call via Git Trees API
+  const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`;
+  const treeRes = await fetchWithRetry(treeUrl, { headers, signal });
+  if (!treeRes.ok) throw new Error('Failed to fetch repository tree');
+
+  const treeData = await treeRes.json();
+  const paths: string[] = [];
+  const relevantPaths: string[] = [];
+
+  if (treeData.tree) {
+    for (const item of treeData.tree) {
+      if (item.type === 'blob') {
+        paths.push(item.path);
+        // Pre-filter to relevant files only — skip binaries, large files, .git
+        if (
+          /\.(ts|tsx|js|jsx|json|env|yml|yaml|css|scss|html|md|sql|prisma|toml)$/.test(item.path) ||
+          /\.(config\.(ts|js|mjs)|eslintrc|prettierrc)$/.test(item.path) ||
+          ['Dockerfile', 'docker-compose.yml', '.gitignore', '.env.example', 'Makefile', 'nginx.conf', '.htaccess', 'web.config', 'package.json'].some(n => item.path === n || item.path.endsWith('/' + n))
+        ) {
+          relevantPaths.push(item.path);
+        }
+      }
+    }
+  }
 
   const files = new Map<string, string | null>();
-  const paths: string[] = [];
-  const maxConcurrency = 5;
+
+  // 3. Fetch file contents in parallel — HIGH concurrency (25)
+  const MAX_CONCURRENCY = 25;
   let pending = 0;
   const queue: (() => void)[] = [];
 
   async function acquire(): Promise<void> {
-    if (pending < maxConcurrency) { pending++; return; }
+    if (pending < MAX_CONCURRENCY) { pending++; return; }
     await new Promise<void>(resolve => queue.push(() => { pending++; resolve(); }));
   }
 
@@ -78,42 +106,7 @@ async function loadRepository(
     next?.();
   }
 
-  async function listDir(dirPath: string): Promise<void> {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${dirPath}`;
-    await acquire();
-    try {
-      const res = await fetchWithRetry(url, { headers, signal });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!Array.isArray(data)) {
-        if (data.type === 'file') {
-          paths.push(data.path);
-        }
-        return;
-      }
-      const dirs: string[] = [];
-      for (const item of data) {
-        if (item.type === 'file') {
-          paths.push(item.path);
-        } else if (item.type === 'dir') {
-          dirs.push(item.path);
-        }
-      }
-      await Promise.all(dirs.map(d => listDir(d)));
-    } finally {
-      release();
-    }
-  }
-
-  await listDir('');
-
-  const fileReadQueue: string[] = paths.filter(p =>
-    /\.(ts|tsx|js|jsx|json|env|yml|yaml|css|scss|html|md|sql|prisma|toml|lock|config\.(ts|js|mjs))$/.test(p) ||
-    ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', '.gitignore', '.env.example', '.env', 'Makefile', 'Dockerfile', 'nginx.conf', '.htaccess', 'web.config', '.prettierrc', 'eslint.config.js', '.eslintrc.json'].some(n => p.endsWith(n) || p === n)
-  );
-
-  await Promise.all(fileReadQueue.map(async (filePath) => {
+  await Promise.all(relevantPaths.map(async (filePath) => {
     if (signal?.aborted) return;
     await acquire();
     try {
@@ -126,6 +119,8 @@ async function loadRepository(
           files.set(filePath, content);
         }
       }
+    } catch {
+      // skip failed file fetches
     } finally {
       release();
     }
@@ -924,33 +919,34 @@ export async function scanGitHubRepo(
     stageIndex = 3;
     emitProgress();
 
-    const engineStages = [
-      { idx: 4, cat: 'security' as const, label: 'Security', runner: CATEGORY_RUNNERS['security'] },
-      { idx: 5, cat: 'ai-safety' as const, label: 'AI Safety', runner: CATEGORY_RUNNERS['ai-safety'] },
-      { idx: 6, cat: 'runtime' as const, label: 'Runtime', runner: CATEGORY_RUNNERS['runtime'] },
-      { idx: 6, cat: 'infrastructure' as const, label: 'Infrastructure', runner: CATEGORY_RUNNERS['infrastructure'] },
-      { idx: 6, cat: 'observability' as const, label: 'Observability', runner: CATEGORY_RUNNERS['observability'] },
-      { idx: 6, cat: 'performance' as const, label: 'Performance', runner: CATEGORY_RUNNERS['performance'] },
-      { idx: 6, cat: 'accessibility' as const, label: 'Accessibility', runner: CATEGORY_RUNNERS['accessibility'] },
-      { idx: 6, cat: 'compliance' as const, label: 'Compliance', runner: CATEGORY_RUNNERS['compliance'] },
+    const engineRunners = [
+      { cat: 'security' as const, label: 'Security', runner: CATEGORY_RUNNERS['security'] },
+      { cat: 'ai-safety' as const, label: 'AI Safety', runner: CATEGORY_RUNNERS['ai-safety'] },
+      { cat: 'runtime' as const, label: 'Runtime', runner: CATEGORY_RUNNERS['runtime'] },
+      { cat: 'infrastructure' as const, label: 'Infrastructure', runner: CATEGORY_RUNNERS['infrastructure'] },
+      { cat: 'observability' as const, label: 'Observability', runner: CATEGORY_RUNNERS['observability'] },
+      { cat: 'performance' as const, label: 'Performance', runner: CATEGORY_RUNNERS['performance'] },
+      { cat: 'accessibility' as const, label: 'Accessibility', runner: CATEGORY_RUNNERS['accessibility'] },
+      { cat: 'compliance' as const, label: 'Compliance', runner: CATEGORY_RUNNERS['compliance'] },
     ];
 
-    const categoryResults: CategoryResult[] = [];
+    // Run all category checks in PARALLEL for max speed
+    stageIndex = 4;
+    emitProgress();
 
-    for (const engine of engineStages) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      stageIndex = engine.idx;
-      emitProgress();
-
-      const checks = await engine.runner(ctx);
-      const scored = scoreCategory(engine.cat, checks);
-      categoryResults.push({
-        categoryId: engine.cat,
-        categoryLabel: engine.label,
-        checks,
-        ...scored,
-      });
-    }
+    const categoryResults: CategoryResult[] = await Promise.all(
+      engineRunners.map(async ({ cat, label, runner }) => {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        const checks = await runner(ctx);
+        const scored = scoreCategory(cat, checks);
+        return {
+          categoryId: cat,
+          categoryLabel: label,
+          checks,
+          ...scored,
+        };
+      })
+    );
 
     stageIndex = 7;
     emitProgress();
