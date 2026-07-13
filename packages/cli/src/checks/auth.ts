@@ -3,6 +3,12 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for authentication issues:
+ * - Auth middleware file exists (middleware.ts)
+ * - Auth secret documented in .env.example
+ * - API routes that handle private data have auth checks
+ */
 export async function runAuthChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

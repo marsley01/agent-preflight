@@ -1,18 +1,24 @@
 import chalk from 'chalk';
 import type { CategoryResult, CheckResult } from './scan';
 
+/** Map a check status to its corresponding emoji icon. */
 function icon(status: CheckResult['status']) {
   if (status === 'pass') return chalk.green('\u2705');
   if (status === 'fail') return chalk.red('\u274C');
   return chalk.yellow('\u26A0\uFE0F');
 }
 
+/** Compute the aggregate pass/total score across all categories. */
 function score(categories: CategoryResult[]) {
   const all = categories.flatMap((c) => c.checks);
   const passed = all.filter((c) => c.status === 'pass').length;
   return { passed, total: all.length };
 }
 
+/**
+ * Render the scan report to the terminal using chalk for color-coded output.
+ * Shows each category with its checks, followed by a summary score.
+ */
 export function renderReport(dir: string, categories: CategoryResult[]) {
   console.log('');
   console.log(chalk.bold('\u{1F6EB} Agent Preflight \u2014 Pre-Deploy Scan'));

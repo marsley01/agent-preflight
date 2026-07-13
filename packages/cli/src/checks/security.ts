@@ -3,6 +3,7 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/** Regex patterns for known API keys and secrets that should never appear in client-side code. */
 const DANGEROUS_PATTERNS = [
   { pattern: /supabase.*service_role/i, label: 'Supabase service role key' },
   { pattern: /sk-[a-zA-Z0-9]{20,}/,     label: 'OpenAI API key' },
@@ -11,8 +12,15 @@ const DANGEROUS_PATTERNS = [
   { pattern: /Consumer_Secret/i,         label: 'M-Pesa consumer secret' },
 ];
 
+/** Directories that are likely served to the browser (client-side bundle). */
 const CLIENT_SIDE_DIRS = ['components', 'app', 'pages', 'src/app', 'src/pages', 'src/components', 'src/lib'];
 
+/**
+ * Check for security issues:
+ * - .env is gitignored (secrets won't be committed)
+ * - .env.example exists (documents required env vars)
+ * - No dangerous secrets leaked in client-side source files
+ */
 export async function runSecurityChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

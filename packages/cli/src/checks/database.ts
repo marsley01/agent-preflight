@@ -3,6 +3,11 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for database security issues:
+ * - Row-Level Security (RLS) enabled in SQL migrations
+ * - Database connection URL documented in .env.example
+ */
 export async function runDatabaseChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

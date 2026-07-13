@@ -5,6 +5,8 @@ Catch the bugs AI agents introduce before they hit production.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@preflight-agent/cli)](https://npmjs.com/package/@preflight-agent/cli)
+[![CI](https://github.com/anomalyco/agent-preflight/actions/workflows/preflight-scan.yml/badge.svg)](https://github.com/anomalyco/agent-preflight/actions/workflows/preflight-scan.yml)
+[![Snyk](https://img.shields.io/badge/security-Snyk-brightgreen)](https://github.com/anomalyco/agent-preflight/actions/workflows/snyk-security.yml)
 
 ---
 
@@ -87,11 +89,45 @@ preflight scan
 
 | Category | What it checks |
 |----------|----------------|
-| Security | Keys in source, .env gitignored, service role exposure |
-| Auth | Protected route middleware, session validation |
-| Payments | Webhook signature, error handling, idempotency |
-| Database | RLS policies, migration safety |
-| API | Input validation, rate limiting, CORS |
+| Security | Hardcoded API keys in client code, `.env` gitignored, service role exposure |
+| Auth | Auth middleware presence, JWT/NextAuth secret in `.env.example`, unprotected routes |
+| Payments | Webhook signature validation, error handling, idempotency keys |
+| Database | Row-Level Security (RLS) in migrations, database URL in `.env.example` |
+| API | Input validation (Zod/Yup), rate limiting, unvalidated POST routes |
+| Web | CSP headers, clickjacking protection, CORS config, secure cookie flags |
+| GraphQL | Query depth limiting, auth context, introspection disabled in production |
+| Real-Time | Connection cleanup, reconnection logic, auth on WebSocket channels |
+| Vulnerabilities | XSS (`dangerouslySetInnerHTML`), `eval()`, MIME sniffing, HSTS, mixed content, CSRF, debug mode leaks, build artifacts in `.gitignore` |
+
+## GitHub Actions
+
+Add the following to `.github/workflows/preflight-scan.yml` to automatically scan every PR:
+
+```yaml
+name: Preflight Scan
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: preflight-agent/cli@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Results are posted as a PR comment. See [preflight-scan.yml](.github/workflows/preflight-scan.yml) for the full workflow.
+
+## Web UI
+
+Scan public GitHub repos without installing anything:
+
+👉 **[preflight-agent.vercel.app](https://preflight-agent.vercel.app)**
+
+Paste a GitHub repo URL, get an instant scan report in your browser. The scan runs entirely client-side via the GitHub API — no backend involved.
 
 ## Built for vibe coders
 

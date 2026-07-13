@@ -3,6 +3,11 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for API security issues:
+ * - Input validation (Zod, Yup, Valibot) on POST routes
+ * - Rate limiting / abuse protection
+ */
 export async function runApiChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

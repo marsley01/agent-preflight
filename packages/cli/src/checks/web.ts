@@ -3,6 +3,13 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for web security issues (Next.js config):
+ * - Content-Security-Policy header
+ * - Clickjacking protection (X-Frame-Options / frame-ancestors)
+ * - CORS configuration
+ * - Secure cookie flags (httpOnly, secure, sameSite)
+ */
 export async function runWebChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

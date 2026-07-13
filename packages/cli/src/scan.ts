@@ -11,24 +11,49 @@ import { runRealtimeChecks } from './checks/realtime';
 import { runVulnerabilityChecks } from './checks/vulnerabilities';
 import { renderReport } from './reporter';
 
+/**
+ * Result of a single check within a category.
+ */
 export interface CheckResult {
+  /** Whether the check passed, failed, or is a warning */
   status: 'pass' | 'fail' | 'warn';
+  /** Human-readable description of the result */
   message: string;
+  /** File path relative to the scanned directory (if applicable) */
   file?: string;
+  /** Line number within the file (if applicable) */
   line?: number;
 }
 
+/**
+ * A named category containing a set of check results.
+ */
 export interface CategoryResult {
+  /** Display name for the category (e.g. "Security", "Database") */
   name: string;
+  /** Individual check results within this category */
   checks: CheckResult[];
 }
 
+/**
+ * CLI options accepted by the scan command.
+ */
 export interface ScanOptions {
+  /** Output results as JSON instead of a terminal report */
   json?: boolean;
+  /** Exit with code 1 if any checks fail */
   strict?: boolean;
+  /** Run only a single category by name */
   only?: string;
 }
 
+/**
+ * Run all applicable security checks against a project directory.
+ * Iterates through all 9 check categories, filters by `--only` if set,
+ * and either prints a terminal report or writes JSON to stdout.
+ *
+ * When `--strict` is set, the process exits with code 1 if any check fails.
+ */
 export async function runScan(dir: string, options: ScanOptions) {
   const absoluteDir = path.resolve(process.cwd(), dir);
 

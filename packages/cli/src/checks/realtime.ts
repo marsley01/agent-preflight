@@ -3,6 +3,12 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for real-time connection issues (WebSocket, Supabase Realtime):
+ * - Connection cleanup (unsubscribe, disconnect on unmount)
+ * - Reconnection logic (retry, backoff)
+ * - Authentication on real-time channels
+ */
 export async function runRealtimeChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

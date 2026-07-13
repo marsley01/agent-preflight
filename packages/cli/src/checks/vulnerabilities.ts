@@ -3,6 +3,17 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for common web vulnerabilities:
+ * - XSS (dangerouslySetInnerHTML, innerHTML assignments)
+ * - eval() usage (arbitrary code execution)
+ * - MIME sniffing protection (X-Content-Type-Options: nosniff)
+ * - HSTS (Strict-Transport-Security) header
+ * - Mixed content (http:// URLs in source)
+ * - CSRF protection (tokens, SameSite cookies)
+ * - Debug mode enabled in production
+ * - Build artifacts missing from .gitignore
+ */
 export async function runVulnerabilityChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

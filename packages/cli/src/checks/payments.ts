@@ -3,6 +3,12 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for payment handling issues:
+ * - Webhook signature validation (Stripe, M-Pesa)
+ * - Error handling (try/catch) in payment routes
+ * - Idempotency keys to prevent duplicate charges
+ */
 export async function runPaymentChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

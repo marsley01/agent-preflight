@@ -1,5 +1,14 @@
 #!/usr/bin/env node
 
+/**
+ * Agent Preflight CLI — pre-deploy security scanner for vibe coders.
+ *
+ * Usage:
+ *   preflight scan [dir] [options]
+ *
+ * @packageDocumentation
+ */
+
 import { Command } from 'commander';
 import { runScan } from './scan';
 

@@ -3,6 +3,12 @@ import path from 'path';
 import { glob } from 'glob';
 import type { CheckResult } from '../scan';
 
+/**
+ * Check for GraphQL security issues:
+ * - Query depth limiting (prevents recursive/malicious queries)
+ * - Authentication context on GraphQL endpoints
+ * - Introspection disabled in production
+ */
 export async function runGraphqlChecks(dir: string): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 

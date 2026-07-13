@@ -1,3 +1,11 @@
+/**
+ * Scanner check modules.
+ * Each module exports a single async function that takes a project directory
+ * path and returns an array of {@link import('../scan').CheckResult}.
+ *
+ * @module checks
+ */
+
 export { runSecurityChecks } from './security';
 export { runAuthChecks } from './auth';
 export { runPaymentChecks } from './payments';
