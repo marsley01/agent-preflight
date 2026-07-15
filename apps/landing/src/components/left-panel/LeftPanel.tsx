@@ -1,156 +1,102 @@
 import { useState } from 'react';
-import {
-  FolderGit2,
-  History,
-  GitBranch,
-  GitPullRequest,
-  Cloud,
-  Settings,
-  Search,
-  ChevronRight,
-} from 'lucide-react';
-import { useScanStore } from '../../store/scan-store';
+import { Shield, Search, KeyRound, Terminal, Github, ExternalLink, LayoutDashboard, AlertTriangle } from 'lucide-react';
 
 interface NavItem {
   id: string;
   label: string;
-  icon: typeof FolderGit2;
-  badge?: string;
+  icon: typeof Shield;
 }
 
-const navGroups: { label: string; items: NavItem[] }[] = [
-  {
-    label: 'Workspace',
-    items: [
-      { id: 'projects', label: 'Projects', icon: FolderGit2 },
-      { id: 'scans', label: 'Scan History', icon: History },
-      { id: 'branches', label: 'Branches', icon: GitBranch },
-    ],
-  },
-  {
-    label: 'Integrations',
-    items: [
-      { id: 'github', label: 'GitHub', icon: GitPullRequest },
-      { id: 'deployments', label: 'Deployments', icon: Cloud },
-    ],
-  },
+const navItems: NavItem[] = [
+  { id: 'dashboard', label: 'Security Dashboard', icon: LayoutDashboard },
+  { id: 'scans', label: 'Repository Scans', icon: Search },
+  { id: 'secrets', label: 'Secrets Scanner', icon: KeyRound },
+  { id: 'playground', label: 'Audit Playground', icon: Terminal },
 ];
 
-export function LeftPanel() {
-  const [active, setActive] = useState('projects');
-  const history = useScanStore((s) => s.history);
+const repo = 'marsley01/Edyfra';
 
-  const badges: Record<string, string | undefined> = {
-    scans: history.length > 0 ? String(history.length) : undefined,
-  };
+export function LeftPanel() {
+  const [active, setActive] = useState('dashboard');
 
   return (
     <aside
-      className="w-[220px] border-r flex flex-col flex-shrink-0"
-      style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-base)' }}
+      className="w-64 flex-shrink-0 flex flex-col border-r"
+      style={{ background: 'var(--bg-sidebar)', borderColor: 'var(--border-subtle)' }}
     >
-      {/* Search — height-aligned with header inputs */}
-      <div className="px-3 pt-2.5 pb-2">
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-          <input
-            type="text"
-            placeholder="Search projects..."
-            className="input-field pl-8 text-[12px]"
-            style={{ height: '30px', borderRadius: '4px' }}
-          />
+      {/* Branding */}
+      <div className="flex items-center gap-3 px-6 pt-6 pb-8">
+        <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 to-cyan-500"
+          style={{ boxShadow: '0 0 20px rgba(139,92,246,0.35)' }}
+        >
+          <AlertTriangle size={20} className="text-white" />
+        </div>
+        <div>
+          <h1 className="text-sm font-extrabold tracking-wider uppercase"
+            style={{
+              background: 'linear-gradient(to right, var(--text-primary), var(--text-secondary))',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
+            Preflight
+          </h1>
+          <span className="text-[10px] font-bold tracking-widest uppercase"
+            style={{ color: 'var(--accent-cyan)' }}
+          >
+            AI Security Shield
+          </span>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 pb-3">
-        {navGroups.map((group) => (
-          <div key={group.label} className="mb-4">
-            <div
-              className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--text-tertiary)' }}
+      <nav className="flex-1 px-3 space-y-1">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = active === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActive(item.id)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold transition-all"
+              style={{
+                background: isActive ? 'var(--bg-hover)' : 'transparent',
+                color: isActive ? 'var(--accent-cyan)' : 'var(--text-tertiary)',
+                borderLeft: isActive ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                boxShadow: isActive ? 'inset 4px 0 0 rgba(6,182,212,0.1)' : 'none',
+              }}
             >
-              {group.label}
-            </div>
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              const isActive = active === item.id;
-              const badge = badges[item.id];
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActive(item.id)}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px] transition-colors"
-                  style={{
-                    background: isActive ? 'var(--bg-hover)' : 'transparent',
-                    color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                    borderRadius: '4px',
-                  }}
-                >
-                  <Icon size={15} className="flex-shrink-0" />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {badge && (
-                    <span
-                      className="text-[10px] font-medium px-1.5 py-0.5"
-                      style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)', borderRadius: '4px' }}
-                    >
-                      {badge}
-                    </span>
-                  )}
-                  {isActive && <ChevronRight size={12} style={{ color: 'var(--text-tertiary)' }} />}
-                </button>
-              );
-            })}
-          </div>
-        ))}
-
-        {/* Recent Scans */}
-        {history.length > 0 && (
-          <div>
-            <div
-              className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--text-tertiary)' }}
-            >
-              Recent Scans
-            </div>
-            {history.slice(0, 5).map((scan) => (
-              <button
-                key={scan.id}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] transition-colors"
-                style={{ color: 'var(--text-secondary)', borderRadius: '4px' }}
-              >
-                <div
-                  className="w-1.5 h-1.5 flex-shrink-0"
-                  style={{
-                    background: scan.status === 'complete'
-                      ? scan.score.percentage >= 75
-                        ? 'var(--accent-emerald)'
-                        : scan.score.percentage >= 50
-                          ? 'var(--accent-amber)'
-                          : 'var(--accent-rose)'
-                      : 'var(--text-tertiary)',
-                    borderRadius: '4px',
-                  }}
-                />
-                <span className="flex-1 text-left truncate">{scan.repoName}</span>
-                <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-                  {scan.score.percentage}%
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+              <Icon size={16} style={{ color: isActive ? 'var(--accent-cyan)' : 'var(--text-tertiary)' }} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Bottom: Settings */}
-      <div className="border-t p-2" style={{ borderColor: 'var(--border-subtle)' }}>
-        <button
-          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[13px] transition-colors"
-          style={{ color: 'var(--text-secondary)', borderRadius: '4px' }}
-        >
-          <Settings size={15} />
-          <span>Settings</span>
-        </button>
+      {/* Bottom CTA */}
+      <div className="px-4 pb-6 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="p-4 rounded-2xl space-y-3" style={{ background: 'var(--bg-hover)', border: '1px solid var(--border-subtle)' }}>
+          <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+            Scan any public repo. No tokens or sign-in needed.
+          </p>
+          <a
+            href={`https://github.com/${repo}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-semibold transition-all"
+            style={{
+              background: 'var(--bg-hover)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <Github size={14} />
+            <span>Star on GitHub</span>
+            <ExternalLink size={12} style={{ color: 'var(--text-tertiary)' }} />
+          </a>
+        </div>
       </div>
     </aside>
   );

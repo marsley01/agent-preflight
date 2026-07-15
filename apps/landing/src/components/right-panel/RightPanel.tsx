@@ -15,8 +15,10 @@ import {
   Github,
   Globe,
   Terminal,
+  Loader2,
 } from 'lucide-react';
 import { useState, useCallback } from 'react';
+import { generateAiFix, type AiFixResult } from '../../lib/ai-fix';
 
 const riskConfig: Record<string, { label: string; color: string; bg: string }> = {
   critical: { label: 'Critical', color: 'var(--accent-rose)', bg: 'var(--accent-rose-bg)' },
@@ -37,6 +39,9 @@ export function RightPanel() {
   const { inspector, closeInspector, selectedThreat, setSelectedThreat } = useScanStore();
   const { check, definition } = inspector;
   const [copied, setCopied] = useState(false);
+  const [aiFixResult, setAiFixResult] = useState<AiFixResult | null>(null);
+  const [aiFixLoading, setAiFixLoading] = useState(false);
+  const [aiFixError, setAiFixError] = useState<string | null>(null);
 
   const handleCopyPatch = useCallback(async () => {
     if (!check?.patch) return;
@@ -49,8 +54,30 @@ export function RightPanel() {
 
   const handleClose = () => {
     setSelectedThreat(null);
+    setAiFixResult(null);
+    setAiFixError(null);
     closeInspector();
   };
+
+  const handleGenerateFix = useCallback(async () => {
+    if (!check || !definition) return;
+    setAiFixLoading(true);
+    setAiFixError(null);
+    setAiFixResult(null);
+    try {
+      const result = await generateAiFix({
+        error_log: definition.description || '',
+        affected_code: check.snippet || '',
+        file_path: check.file || '',
+        tech_stack: definition.category || '',
+      });
+      setAiFixResult(result);
+    } catch (err) {
+      setAiFixError(err instanceof Error ? err.message : 'Failed to generate AI fix');
+    } finally {
+      setAiFixLoading(false);
+    }
+  }, [check, definition]);
 
   // Default placeholder state
   if (!check && !definition && !selectedThreat) {
@@ -325,13 +352,95 @@ export function RightPanel() {
             )}
 
             <button
-              className="w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-medium text-white transition-colors"
+              onClick={handleGenerateFix}
+              disabled={aiFixLoading}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-medium text-white transition-colors disabled:opacity-50"
               style={{ background: 'var(--accent-blue)', borderRadius: '6px' }}
             >
-              <Sparkles size={13} />
-              Generate AI Fix
-              <ArrowRight size={13} className="ml-auto" />
+              {aiFixLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              {aiFixLoading ? 'Generating...' : 'Generate AI Fix'}
+              {!aiFixLoading && <ArrowRight size={13} className="ml-auto" />}
             </button>
+
+          {/* AI Fix result */}
+          {aiFixError && (
+            <div
+              className="p-3 text-[12px] leading-relaxed"
+              style={{
+                background: 'var(--accent-rose-bg)',
+                border: '1px solid var(--accent-rose-border)',
+                borderRadius: '6px',
+                color: 'var(--accent-rose)',
+              }}
+            >
+              {aiFixError}
+            </div>
+          )}
+
+          {aiFixResult && (
+            <div className="space-y-3 pt-2">
+              {/* Root Cause */}
+              <Section label="Root Cause" icon={<AlertTriangle size={12} style={{ color: 'var(--accent-amber)' }} />}>
+                <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                  {aiFixResult.root_cause}
+                </p>
+              </Section>
+
+              {/* Coder Agent Prompt */}
+              <Section label="Fix Prompt" icon={<Sparkles size={12} style={{ color: 'var(--accent-violet)' }} />}>
+                <div
+                  className="overflow-hidden"
+                  style={{ border: '1px solid var(--border-subtle)', borderRadius: '6px' }}
+                >
+                  <div className="px-3 py-1.5 border-b" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-base)' }}>
+                    <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>Coder Agent Instructions</span>
+                  </div>
+                  <pre
+                    className="p-3 text-[12px] font-mono overflow-x-auto leading-relaxed whitespace-pre-wrap"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {aiFixResult.coder_agent_prompt}
+                  </pre>
+                </div>
+              </Section>
+
+              {/* Verification Steps */}
+              {aiFixResult.verification_steps.length > 0 && (
+                <Section label="Verification" icon={<Terminal size={12} style={{ color: 'var(--accent-emerald)' }} />}>
+                  <div className="space-y-1.5">
+                    {aiFixResult.verification_steps.map((step, i) => (
+                      <div key={i} className="flex items-start gap-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                        <span className="text-[10px] font-mono mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                          {i + 1}.
+                        </span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {/* Documentation */}
+              {aiFixResult.documentation_links.length > 0 && (
+                <Section label="References" icon={<ExternalLink size={12} style={{ color: 'var(--accent-blue)' }} />}>
+                  <div className="space-y-1">
+                    {aiFixResult.documentation_links.map((link, i) => (
+                      <div key={i} className="text-[12px] font-mono break-all" style={{ color: 'var(--accent-blue)' }}>
+                        {link}
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {/* Model badge */}
+              {aiFixResult.source !== 'mock' && (
+                <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  Generated by {aiFixResult.model_used}
+                </div>
+              )}
+            </div>
+          )}
 
             {definition.documentationUrl && (
               <a
