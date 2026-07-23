@@ -74,6 +74,69 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Apple-Inspired Button Styles */
+.btn-apple {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  line-height: 1;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn-apple:active {
+  transform: scale(0.96);
+}
+
+.btn-apple-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+}
+.btn-apple-primary:hover {
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-apple-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+}
+.btn-apple-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-apple-ghost {
+  background: transparent;
+  color: #94a3b8;
+  padding: 8px 16px;
+}
+.btn-apple-ghost:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Spacing Utilities */
+.section-gap { gap: 4rem; }
+.section-gap-lg { gap: 6rem; }
+.section-gap-xl { gap: 8rem; }
+.content-max { max-width: 80rem; margin-left: auto; margin-right: auto; }
+.flex-wrap-gap { flex-wrap: wrap; gap: 1.5rem; }
+
 /* Glassmorphism Classes */
 .glass-panel {
   background: rgba(11, 15, 25, 0.65);

@@ -35,7 +35,11 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
 } from 'recharts';
 
 // --- MOCK & DATA TYPES ---
@@ -57,23 +61,23 @@ const DEFAULT_THREATS: ThreatItem[] = [
   {
     id: 't1',
     category: 'security',
-    title: 'Exposed Supabase Service Role Key',
+    title: 'Supabase Service Role Key Exposed',
     severity: 'critical',
     file: 'src/lib/supabase.ts',
     line: 12,
-    description: 'A Supabase service_role key was found hardcoded in your client-side source code. This key bypasses Row-Level Security (RLS) policies and must never be exposed to the browser.',
+    description: 'A Supabase service_role key was found in your client-side code. This key bypasses Row-Level Security (RLS) and must never be in the browser.',
     originalCode: `import { createClient } from '@supabase/supabase-js';\n\n// CRITICAL: Exposed service role key\nexport const supabase = createClient(\n  process.env.NEXT_PUBLIC_SUPABASE_URL,\n  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.service_role_key_exposed_secret_12345'\n);`,
     fixedCode: `import { createClient } from '@supabase/supabase-js';\n\n// FIX: Use the standard anon key for client-side operations\nexport const supabase = createClient(\n  process.env.NEXT_PUBLIC_SUPABASE_URL,\n  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY\n);`,
-    explanation: 'Move the service role key to your secure backend environment variables, and use the public anon key for client-side API calls. If admin access is required, write a secure server action or backend endpoint.'
+    explanation: 'Move the service role key to your secure backend env vars. Use the public anon key for client-side API calls. If you need admin access, write a secure server action or backend endpoint.'
   },
   {
     id: 't2',
     category: 'payments',
-    title: 'Stripe Webhook Missing Signature Validation',
+    title: 'Stripe Webhook Missing Signature Check',
     severity: 'critical',
     file: 'src/app/api/webhook/route.ts',
     line: 18,
-    description: 'Your payment webhook route processes requests without verifying the Stripe-Signature header. This allows malicious actors to forge payment events and trigger unauthorized database updates.',
+    description: 'Your payment webhook processes requests without verifying the Stripe-Signature header. This lets attackers forge payment events and trigger unauthorized database updates.',
     originalCode: `export async function POST(req: Request) {\n  const payload = await req.json();\n  \n  // CRITICAL: Processing event without signature check\n  const event = payload;\n  if (event.type === 'checkout.session.completed') {\n    await fulfillOrder(event.data.object);\n  }\n  return Response.json({ received: true });\n}`,
     fixedCode: `import stripe from '@/lib/stripe';\n\nexport async function POST(req: Request) {\n  const body = await req.text();\n  const signature = req.headers.get('stripe-signature') || '';\n  \n  let event;\n  try {\n    // FIX: Verify signature using webhook secret\n    event = stripe.webhooks.constructEvent(\n      body,\n      signature,\n      process.env.STRIPE_WEBHOOK_SECRET!\n    );\n  } catch (err) {\n    return new Response('Webhook Signature Verification Failed', { status: 400 });\n  }\n  \n  if (event.type === 'checkout.session.completed') {\n    await fulfillOrder(event.data.object);\n  }\n  return Response.json({ received: true });\n}`,
     explanation: 'Read the raw request body as text and verify it against the webhook secret using Stripe\'s SDK constructEvent function. Return a 400 error if verification fails.'
@@ -85,10 +89,10 @@ const DEFAULT_THREATS: ThreatItem[] = [
     severity: 'warning',
     file: 'src/app/api/user/settings/route.ts',
     line: 5,
-    description: 'API endpoint retrieves user data based on request parameters but does not authenticate the caller, allowing anyone to fetch sensitive info.',
+    description: 'API endpoint fetches user data from request params but skips authentication, letting anyone access sensitive info.',
     originalCode: `export async function GET(req: Request) {\n  const { searchParams } = new URL(req.url);\n  const userId = searchParams.get('userId');\n  \n  // WARNING: Fetching user settings without auth check\n  const settings = await db.select().from(users).where(eq(users.id, userId));\n  return Response.json(settings);\n}`,
     fixedCode: `import { auth } from '@/lib/auth';\n\nexport async function GET(req: Request) {\n  // FIX: Protect the route using authentication helpers\n  const session = await auth();\n  if (!session?.user) {\n    return new Response('Unauthorized', { status: 401 });\n  }\n  \n  const settings = await db.select().from(users).where(eq(users.id, session.user.id));\n  return Response.json(settings);\n}`,
-    explanation: 'Import authentication helper middleware and restrict database retrieval to the authenticated user ID found in the secure session cookie.'
+    explanation: 'Import the auth helper middleware and restrict database queries to the authenticated user ID from the secure session cookie.'
   },
   {
     id: 't4',
@@ -97,10 +101,10 @@ const DEFAULT_THREATS: ThreatItem[] = [
     severity: 'warning',
     file: 'src/app/api/feedback/route.ts',
     line: 8,
-    description: 'Route accepts POST payload directly without validation, presenting opportunities for SQL injection or schema issues.',
+    description: 'Route accepts POST payload directly without validation, opening doors for SQL injection or schema issues.',
     originalCode: `export async function POST(req: Request) {\n  const data = await req.json();\n  \n  // WARNING: Saving raw payload directly\n  await db.insert(feedback).values(data);\n  return Response.json({ success: true });\n}`,
     fixedCode: `import { z } from 'zod';\n\nconst feedbackSchema = z.object({\n  title: z.string().min(3).max(100),\n  content: z.string().min(10),\n  rating: z.number().int().min(1).max(5),\n});\n\nexport async function POST(req: Request) {\n  const rawData = await req.json();\n  \n  // FIX: Parse and validate input schema\n  const parsed = feedbackSchema.safeParse(rawData);\n  if (!parsed.success) {\n    return Response.json({ error: parsed.error.format() }, { status: 400 });\n  }\n  \n  await db.insert(feedback).values(parsed.data);\n  return Response.json({ success: true });\n}`,
-    explanation: 'Create a Zod schema matching the expected fields, call safeParse, and return a 400 Bad Request if validation constraints are violated.'
+    explanation: 'Create a Zod schema matching expected fields, call safeParse, and return a 400 Bad Request if validation constraints are violated.'
   }
 ];
 
@@ -113,6 +117,15 @@ const OVERVIEW_CHART_DATA = [
   { name: 'Jul 21', threats: 10 },
   { name: 'Jul 22', threats: 6 },
   { name: 'Jul 23', threats: 4 },
+];
+
+// Pie chart data - vulnerability breakdown by category
+const PIE_CHART_DATA = [
+  { name: 'Security', value: 3, color: '#ef4444' },
+  { name: 'Auth', value: 2, color: '#f59e0b' },
+  { name: 'Payments', value: 2, color: '#3b82f6' },
+  { name: 'API', value: 4, color: '#8b5cf6' },
+  { name: 'Database', value: 1, color: '#10b981' },
 ];
 
 export default function DashboardPage() {
@@ -422,25 +435,25 @@ export default function DashboardPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-cyber-dark relative z-20 overflow-hidden">
         
         {/* Top Header Row */}
-        <header className="h-20 border-b border-white/5 bg-cyber-dark/40 backdrop-blur-md flex items-center justify-between px-8 flex-shrink-0 relative z-30">
+        <header className="h-20 border-b border-white/5 bg-cyber-dark/40 backdrop-blur-md flex items-center justify-between px-8 flex-shrink-0 relative z-30 gap-4">
           
           {/* Quick Search trigger Command Palette */}
-          <div className="flex-1 max-w-md">
+          <div className="flex-1 min-w-0 max-w-xl">
             <div 
               onClick={() => setCommandPaletteOpen(true)}
               className="relative cursor-pointer group"
             >
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors" />
               <div className="w-full pl-11 pr-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm text-slate-400 flex items-center justify-between transition-all">
-                <span>Search dashboard settings, actions...</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded text-[10px] font-mono border border-white/5">Ctrl+K</kbd>
+                <span className="truncate">Search dashboard settings, actions...</span>
+                <kbd className="px-2 py-0.5 bg-white/10 rounded text-[10px] font-mono border border-white/5 shrink-0 ml-2">Ctrl+K</kbd>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-6 ml-4">
+          <div className="flex items-center gap-3 shrink-0">
             {/* Notifications Indicator */}
-            <button className="text-slate-400 hover:text-white transition-colors relative p-1">
+            <button className="text-slate-400 hover:text-white transition-colors relative p-2 rounded-xl hover:bg-white/5">
               <Bell className="w-5 h-5" />
               <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full border border-cyber-dark" />
             </button>
@@ -450,10 +463,11 @@ export default function DashboardPage() {
               href="https://github.com/marsley01/agent-preflight"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/5 text-xs text-slate-300 hover:text-white transition-colors"
+              className="btn-apple btn-apple-ghost"
+              style={{ padding: '6px 12px', gap: '6px' }}
             >
               <Github className="w-4.5 h-4.5" />
-              <span>marsley01/agent-preflight</span>
+              <span className="text-xs font-medium">marsley01/agent-preflight</span>
             </a>
           </div>
         </header>
@@ -475,12 +489,12 @@ export default function DashboardPage() {
                 {/* Title Section */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-3xl font-extrabold text-white font-display tracking-tight">Security Posture Overview</h1>
-                    <p className="text-slate-400 mt-1">Real-time health telemetry compiled by autonomous agents.</p>
+                    <h1 className="text-3xl font-extrabold text-white font-display tracking-tight">Project Vibe Check</h1>
+                    <p className="text-slate-400 mt-1">Real-time health check on your codebase.</p>
                   </div>
                   <button 
                     onClick={() => setActiveTab('scan')}
-                    className="px-5 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple hover:opacity-95 text-white rounded-xl text-sm font-semibold tracking-wide shadow-lg shadow-cyber-blue/10 flex items-center gap-2"
+                    className="btn-apple btn-apple-primary"
                   >
                     <Terminal className="w-4 h-4" />
                     Open Scanner Console
@@ -524,23 +538,23 @@ export default function DashboardPage() {
                   <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
                     {[
                       { 
-                        label: 'Active Critical Threats', 
+                        label: 'Critical Fixes (Deploy Blockers)', 
                         value: scanReport ? scanReport.threats.filter(t => t.severity === 'critical').length : '0', 
-                        detail: 'Immediate attention required in codebase.',
+                        detail: 'Must fix before shipping to production.',
                         icon: <AlertTriangle className="w-5 h-5" />, 
                         color: 'text-rose-400 border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10'
                       },
                       { 
-                        label: 'Warnings Triaged', 
+                        label: 'Warning Vibes (Review Recommended)', 
                         value: scanReport ? scanReport.threats.filter(t => t.severity === 'warning').length : '0', 
-                        detail: 'Moderate risks including library warnings.',
+                        detail: 'Moderate risks worth addressing.',
                         icon: <Info className="w-5 h-5" />, 
                         color: 'text-amber-400 border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10'
                       },
                       { 
-                        label: 'Scanned Files Buffer', 
+                        label: 'Files Scanned', 
                         value: scanReport ? scanReport.scannedFiles : '0', 
-                        detail: 'Total source files validated in memory.',
+                        detail: 'Total source files checked.',
                         icon: <CheckCircle2 className="w-5 h-5" />, 
                         color: 'text-cyber-emerald border-cyber-emerald/20 bg-cyber-emerald/5 hover:bg-cyber-emerald/10'
                       },
@@ -564,39 +578,87 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Graph Analytics Area */}
-                <div className="p-8 rounded-2xl glass-panel border-white/5">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                    <div>
-                      <h3 className="font-extrabold text-xl text-white font-display tracking-wide">Threat Mitigation Vectors</h3>
-                      <p className="text-slate-400 text-xs mt-0.5">Tracking daily security breaches found during push checks.</p>
+                {/* Graph Analytics Area - Two Charts Side by Side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Area Chart - Threat Trends */}
+                  <div className="p-8 rounded-2xl glass-panel border-white/5">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                      <div>
+                        <h3 className="font-extrabold text-xl text-white font-display tracking-wide">Threat Trends (7 Days)</h3>
+                        <p className="text-slate-400 text-xs mt-0.5">Daily issues caught during pre-push checks.</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-cyber-emerald/10 border border-cyber-emerald/20 rounded-full px-3.5 py-1 text-xs text-cyber-emerald font-semibold">
+                        <TrendingUp className="w-4 h-4" />
+                        <span>7-Day confidence trending up</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 bg-cyber-emerald/10 border border-cyber-emerald/20 rounded-full px-3.5 py-1 text-xs text-cyber-emerald font-semibold">
-                      <TrendingUp className="w-4 h-4" />
-                      <span>7-Day security confidence trending up</span>
+                    
+                    <div className="h-[350px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={OVERVIEW_CHART_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="cyberGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                          <XAxis dataKey="name" stroke="rgba(255,255,255,0.2)" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+                          <YAxis stroke="rgba(255,255,255,0.2)" fontSize={11} tickLine={false} axisLine={false} dx={-10} />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: '#0b0f19', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '12px' }}
+                            labelStyle={{ color: '#64748b', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}
+                            itemStyle={{ color: '#ffffff', fontWeight: 'bold', fontSize: '13px' }}
+                          />
+                          <Area type="monotone" dataKey="threats" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#cyberGradient)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
-                  
-                  <div className="h-[350px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={OVERVIEW_CHART_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="cyberGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                        <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} dy={10} />
-                        <YAxis stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} dx={-10} />
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#0b0f19', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '12px' }}
-                          labelStyle={{ color: '#64748b', fontWeight: 'bold', fontSize: '11px', marginBottom: '4px' }}
-                          itemStyle={{ color: '#ffffff', fontWeight: 'bold', fontSize: '13px' }}
-                        />
-                        <Area type="monotone" dataKey="threats" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#cyberGradient)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+
+                  {/* Pie Chart - Vulnerability Breakdown */}
+                  <div className="p-8 rounded-2xl glass-panel border-white/5">
+                    <div className="mb-8">
+                      <h3 className="font-extrabold text-xl text-white font-display tracking-wide">Vibe Breakdown by Category</h3>
+                      <p className="text-slate-400 text-xs mt-0.5">Where the issues are coming from.</p>
+                    </div>
+                    
+                    <div className="h-[350px] w-full flex flex-col items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={PIE_CHART_DATA}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={70}
+                            outerRadius={110}
+                            fill="#8884d8"
+                            paddingAngle={2}
+                            dataKey="value"
+                            label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                            labelLine={false}
+                            stroke="transparent"
+                          >
+                            {PIE_CHART_DATA.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#0b0f19', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '12px' }}
+                            formatter={(value, name) => [value, name]}
+                            labelStyle={{ color: '#ffffff', fontWeight: 'bold', fontSize: '13px' }}
+                          />
+                          <Legend
+                            layout="vertical"
+                            align="right"
+                            verticalAlign="middle"
+                            iconType="circle"
+                            iconSize={10}
+                            formatter={(value: string) => value}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -611,30 +673,31 @@ export default function DashboardPage() {
                 exit={{ opacity: 0 }}
                 className="max-w-7xl mx-auto space-y-8"
               >
-                {/* Header Inputs */}
+{/* Header Inputs */}
                 <div className="p-6 rounded-2xl glass-panel border-white/5">
-                  <h2 className="text-xl font-bold text-white font-display mb-4">Run Autonomous Code Scan</h2>
+                  <h2 className="text-xl font-bold text-white font-display mb-4">Run Code Scan</h2>
                   <div className="flex flex-col md:flex-row gap-4">
-                    <div className="flex-1 relative">
+                    <div className="flex-1 relative min-w-0">
                       <Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
                       <input 
                         type="text" 
                         value={repoUrl}
                         onChange={(e) => setRepoUrl(e.target.value)}
                         disabled={isScanning}
-                        placeholder="Enter public GitHub repo URL..." 
+                        placeholder="Paste a public GitHub repo URL..." 
                         className="w-full pl-12 pr-4 py-3 bg-[#050811] border border-white/10 rounded-xl text-sm focus:outline-none focus:border-cyber-blue text-slate-200 disabled:opacity-50"
                       />
                     </div>
                     <button
                       onClick={handleTriggerScan}
                       disabled={isScanning}
-                      className="px-8 py-3 bg-gradient-to-r from-cyber-blue to-cyber-purple hover:opacity-95 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-cyber-blue/15 disabled:opacity-50 shrink-0"
+                      className="btn-apple btn-apple-primary shrink-0"
+                      style={{ minWidth: '180px' }}
                     >
                       {isScanning ? (
                         <>
                           <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>Scanning Stack...</span>
+                          <span>Scanning...</span>
                         </>
                       ) : (
                         <>
@@ -695,11 +758,11 @@ export default function DashboardPage() {
                       <div className="rounded-2xl border border-white/5 bg-[#060913]/90 overflow-hidden shadow-2xl">
                         <div className="p-6 border-b border-white/5 flex items-center justify-between">
                           <div>
-                            <h3 className="font-bold text-lg text-white font-display">Checks & Vulnerabilities</h3>
-                            <p className="text-xs text-slate-400">Click a vulnerability to load AI debugger patch.</p>
+                            <h3 className="font-bold text-lg text-white font-display">Issues Found</h3>
+                            <p className="text-xs text-slate-400">Click an issue to see the AI fix.</p>
                           </div>
                           <span className="text-xs font-semibold px-3 py-1 bg-white/5 border border-white/10 rounded-full text-slate-300">
-                            Score: {scanReport.score}/10
+                            Vibe Score: {scanReport.score}/10
                           </span>
                         </div>
 
@@ -761,7 +824,7 @@ export default function DashboardPage() {
                           <div className="p-6 border-b border-white/5 bg-gradient-to-r from-cyber-blue/10 to-cyber-purple/5 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Sparkles className="w-5 h-5 text-cyber-purple animate-pulse" />
-                              <h3 className="font-extrabold text-sm text-white uppercase tracking-wider font-display">AI Code Fix Preview</h3>
+                              <h3 className="font-extrabold text-sm text-white uppercase tracking-wider font-display">AI Fix Preview</h3>
                             </div>
                             <span className="text-[11px] font-mono text-slate-400 bg-black/40 px-2.5 py-1 rounded-full border border-white/5">{selectedThreat.file}</span>
                           </div>
@@ -769,7 +832,7 @@ export default function DashboardPage() {
                           <div className="p-6 flex-1 overflow-y-auto space-y-6 max-h-[600px]">
                             {/* Explanatory notes */}
                             <div>
-                              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Issue Explanation</h4>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2">What's the issue?</h4>
                               <p className="text-xs text-slate-400 leading-relaxed">{selectedThreat.explanation}</p>
                             </div>
 
@@ -778,8 +841,8 @@ export default function DashboardPage() {
                               {/* Original vulnerable block */}
                               <div>
                                 <div className="flex items-center justify-between bg-rose-950/20 text-rose-400 px-3.5 py-2 border border-rose-500/10 rounded-t-lg">
-                                  <span>Original Vulnerable Code</span>
-                                  <span className="text-[9px] uppercase font-bold tracking-widest text-rose-500">Removed</span>
+                                  <span>Problem Code</span>
+                                  <span className="text-[9px] uppercase font-bold tracking-widest text-rose-500">Remove</span>
                                 </div>
                                 <pre className="p-4 bg-rose-950/5 border-x border-b border-rose-500/10 text-rose-200/90 overflow-x-auto rounded-b-lg whitespace-pre select-text">
                                   {selectedThreat.originalCode}
@@ -789,8 +852,8 @@ export default function DashboardPage() {
                               {/* Proposed corrected block */}
                               <div>
                                 <div className="flex items-center justify-between bg-emerald-950/20 text-emerald-400 px-3.5 py-2 border border-emerald-500/10 rounded-t-lg">
-                                  <span>Proposed Solution Patch</span>
-                                  <span className="text-[9px] uppercase font-bold tracking-widest text-emerald-500 font-display">Fix</span>
+                                  <span>Fixed Code</span>
+                                  <span className="text-[9px] uppercase font-bold tracking-widest text-emerald-500 font-display">Apply</span>
                                 </div>
                                 <pre className="p-4 bg-emerald-950/5 border-x border-b border-emerald-500/10 text-emerald-200/90 overflow-x-auto rounded-b-lg whitespace-pre select-text">
                                   {selectedThreat.fixedCode}
@@ -803,10 +866,10 @@ export default function DashboardPage() {
                           <div className="p-4 border-t border-white/5 bg-black/20 flex gap-3">
                             <button
                               onClick={() => copyToClipboard(selectedThreat.fixedCode, 'react' as any)}
-                              className="flex-1 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition-all"
+                              className="btn-apple btn-apple-primary flex-1"
                             >
-                              <Copy className="w-4 h-4 text-cyber-blue" />
-                              <span>Copy Fix Code</span>
+                              <Copy className="w-4 h-4" />
+                              <span>Copy Fix</span>
                             </button>
                             <button
                               onClick={() => {
@@ -818,10 +881,11 @@ export default function DashboardPage() {
                                 element.click();
                                 document.body.removeChild(element);
                               }}
-                              className="px-4 py-3 bg-[#0c1222] hover:bg-[#11192e] border border-white/10 rounded-xl text-xs font-bold text-slate-300 flex items-center justify-center transition-colors"
+                              className="btn-apple btn-apple-secondary"
                               title="Download patched file"
                             >
-                              <Download className="w-4 h-4 text-white" />
+                              <Download className="w-4 h-4" />
+                              <span>Download</span>
                             </button>
                           </div>
                         </motion.div>
@@ -1298,13 +1362,15 @@ export default function DashboardPage() {
                         setWebhookUrl('https://api.my-dashboard.com/webhooks/preflight');
                         setSeverityFilter({ critical: true, warning: true, info: true });
                       }}
-                      className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+                      className="btn-apple btn-apple-secondary"
+                      style={{ padding: '8px 16px', fontSize: '12px' }}
                     >
                       Restore Defaults
                     </button>
                     <button
-                      onClick={() => alert('Configuration parameters applied successfully!')}
-                      className="px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple text-white hover:opacity-95 rounded-xl text-xs font-bold transition-all shadow-md shadow-cyber-blue/15"
+                      onClick={() => alert('Configuration saved!')}
+                      className="btn-apple btn-apple-primary"
+                      style={{ padding: '8px 20px', fontSize: '12px' }}
                     >
                       Save Configuration
                     </button>

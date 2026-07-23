@@ -6,26 +6,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Mock CLI Output lines for terminal simulation
 const CLI_STEPS = [
   { type: 'input', text: 'agent-preflight scan .' },
-  { type: 'info', text: '🛫 Agent Preflight — Pre-Deploy Scan' },
+  { type: 'info', text: '🚀 Preflight — Pre-Deploy Vibe Check' },
   { type: 'info', text: 'Scanning: C:\\Users\\Mash\\Desktop\\Project Apps\\my-awesome-app' },
-  { type: 'progress', text: '🔍 Analyzing project structure and dependencies...' },
+  { type: 'progress', text: '🔍 Checking for sneaky bugs...' },
   { type: 'category', text: '\n  Security' },
   { type: 'check-pass', text: '  ✅  .env is gitignored' },
   { type: 'check-pass', text: '  ✅  No hardcoded API keys found in source' },
-  { type: 'check-fail', text: '  ❌  Supabase service role key found in client-side code (src/lib/supabase.ts:12)' },
+  { type: 'check-fail', text: '  ❌  Supabase service role key in client code (src/lib/supabase.ts:12)' },
   { type: 'category', text: '\n  Authentication' },
   { type: 'check-pass', text: '  ✅  Auth middleware found on protected routes' },
-  { type: 'check-warn', text: '  ⚠️  JWT secret not set in .env.example' },
+  { type: 'check-warn', text: '  ⚠️  JWT secret not in .env.example' },
   { type: 'category', text: '\n  Payments' },
-  { type: 'check-fail', text: '  ❌  No webhook signature validation found in src/app/api/webhook/route.ts' },
+  { type: 'check-fail', text: '  ❌  Webhook signature validation missing in src/app/api/webhook/route.ts' },
   { type: 'check-pass', text: '  ✅  Payment error handling present' },
   { type: 'category', text: '\n  API & Validation' },
   { type: 'check-warn', text: '  ⚠️  3 API routes missing input validation (Zod/Yup not detected)' },
   { type: 'check-pass', text: '  ✅  Rate limiting detected (Upstash Redis)' },
   { type: 'category', text: '\n  Database' },
-  { type: 'check-pass', text: '  ✅  RLS (Row-Level Security) policies found in migrations' },
+  { type: 'check-pass', text: '  ✅  RLS policies found in migrations' },
   { type: 'check-pass', text: '  ✅  .env.example includes DATABASE_URL' },
-  { type: 'result', text: '\n🛫 Score: 6/10 — Fix 2 critical issues before deploying.' }
+  { type: 'result', text: '\n🚀 Vibe Score: 6/10 — Fix 2 bad vibes before shipping!' }
 ];
 
 export default function MarketingPage() {
@@ -97,7 +97,7 @@ export default function MarketingPage() {
           <div className="flex items-center gap-4">
             <Link
               to="/dashboard"
-              className="px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white flex items-center gap-2"
+              className="btn-apple btn-apple-primary"
             >
               Enter Console
               <ChevronRight className="w-4 h-4" />
@@ -137,7 +137,7 @@ export default function MarketingPage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="mt-6 text-lg md:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed"
           >
-            AI agents build code at lightspeed. Preflight scans your codebase, identifies security flaws, unprotected endpoints, and missing configs, giving you a deployment-ready score instantly.
+            AI writes code fast. Preflight catches the bugs, leaks, and missing configs before you ship.
           </motion.p>
 
           <motion.div
@@ -148,16 +148,16 @@ export default function MarketingPage() {
           >
             <Link
               to="/dashboard"
-              className="px-8 py-4 rounded-xl text-base font-bold text-white bg-gradient-to-r from-cyber-blue to-cyber-purple hover:opacity-95 transition-opacity shadow-lg shadow-cyber-blue/20 flex items-center gap-2"
+              className="btn-apple btn-apple-primary"
             >
               Start Scanning Free
               <ChevronRight className="w-5 h-5" />
             </Link>
             <a
               href="#terminal"
-              className="px-8 py-4 rounded-xl text-base font-bold text-slate-300 hover:text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-2"
+              className="btn-apple btn-apple-secondary"
             >
-              <Terminal className="w-5 h-5 text-cyber-blue" />
+              <Terminal className="w-5 h-5" />
               View CLI Demo
             </a>
           </motion.div>
@@ -189,7 +189,8 @@ export default function MarketingPage() {
               ) : (
                 <button
                   onClick={restartSimulation}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-[10px] font-bold text-slate-400 hover:text-white font-mono uppercase tracking-wider"
+                  className="btn-apple btn-apple-ghost"
+                  style={{ padding: '4px 10px', fontSize: '10px', gap: '4px' }}
                 >
                   <RotateCcw className="w-3 h-3" />
                   Re-run
@@ -264,10 +265,10 @@ export default function MarketingPage() {
         </motion.div>
 
         {/* Feature Grid */}
-        <div className="mt-32 max-w-6xl mx-auto">
+        <div className="mt-40 max-w-6xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-5xl font-bold font-display text-white">Full-Spectrum Static Analysis</h2>
-            <p className="text-slate-400 mt-4 max-w-xl mx-auto">Catch code mistakes before they cost you database rows, API keys, or security clearances.</p>
+            <p className="text-slate-400 mt-4 max-w-xl mx-auto">Catch costly mistakes before they mess up your database, leak secrets, or lose payments.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -275,17 +276,17 @@ export default function MarketingPage() {
               {
                 icon: <Zap className="w-6 h-6 text-cyber-blue" />,
                 title: "Instant Execution",
-                desc: "Preflight uses compiled parser heuristics. Scan your entire directory in less than 200ms without having to configure massive compilation setups."
+                desc: "Scan your entire codebase in under 200ms, no complex setup or waiting."
               },
               {
                 icon: <Shield className="w-6 h-6 text-cyber-purple" />,
                 title: "Strict Rule Engine",
-                desc: "Scans for hardcoded tokens, unprotected routes, exposed Supabase roles, and missing Stripe webhook checks in Next.js or Node APIs."
+                desc: "Detects hardcoded tokens, unprotected routes, Supabase role leaks, and missing webhook checks."
               },
               {
                 icon: <Activity className="w-6 h-6 text-cyber-pink" />,
                 title: "Developer First",
-                desc: "Integrate into git hooks or CI pipelines. Outputs a simple pass/fail code, so you can block unsafe PR branches automatically."
+                desc: "Works with git hooks and CI pipelines. Block unsafe PR branches with a simple pass/fail code."
               }
             ].map((feat, i) => (
               <motion.div
@@ -302,26 +303,26 @@ export default function MarketingPage() {
                 <h3 className="text-xl font-bold text-white font-display mb-3">{feat.title}</h3>
                 <p className="text-slate-400 leading-relaxed text-sm">{feat.desc}</p>
               </motion.div>
-            ))}
+))}
           </div>
         </div>
 
         {/* How It Works with GitHub Actions */}
-        <div className="mt-32 border border-white/5 rounded-3xl p-8 md:p-12 bg-gradient-to-br from-cyber-card to-cyber-dark relative overflow-hidden">
+        <div className="mt-48 border border-white/5 rounded-3xl p-8 md:p-12 bg-gradient-to-br from-cyber-card to-cyber-dark relative overflow-hidden">
           <div className="absolute inset-0 bg-grid-pattern opacity-30 pointer-events-none" />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
             <div>
               <span className="text-cyber-purple font-semibold text-xs uppercase tracking-widest">Automation First</span>
-              <h2 className="text-3xl md:text-4xl font-bold text-white font-display mt-2">Continuous Preflight in CI/CD</h2>
+              <h2 className="text-3xl md:text-4xl font-bold text-white font-display mt-2">Run Preflight in CI/CD</h2>
               <p className="text-slate-400 mt-4 leading-relaxed">
-                Add Preflight to your GitHub actions in seconds. When a pull request is opened, Preflight scans the code changes, checks against security rules, and posts a comprehensive scan report as a PR comment.
+                Drop Preflight into GitHub Actions in seconds. Every PR gets scanned, security rules checked, and a report posted as a comment.
               </p>
               
               <ul className="mt-8 space-y-3.5">
                 {[
-                  "Block merges on critical vulnerabilities (Supabase service role keys, etc.)",
-                  "Enforce JWT secret presence in all staging environments",
-                  "Verify that every payment route validates signatures",
+                  "Block merges on critical issues (leaked keys, etc.)",
+                  "Enforce JWT secrets in staging",
+                  "Verify payment routes validate signatures",
                 ].map((item, idx) => (
                   <li key={idx} className="flex items-start gap-3 text-sm text-slate-300">
                     <CheckCircle className="w-5 h-5 text-cyber-emerald shrink-0 mt-0.5" />
