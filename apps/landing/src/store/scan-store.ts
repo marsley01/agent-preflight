@@ -1,168 +1,298 @@
 import { create } from 'zustand';
-import type {
-  ScanReport,
-  ScanProgress,
-  InspectorState,
-  CategoryId,
-  CheckResult,
-  CheckDefinition,
-} from '@shared/types';
-import { getCheckById } from '@shared/checks/index';
-import { isSupabaseConfigured } from '../lib/supabase';
-import { persistReport, persistHistory, loadHistory, loadReport as loadReportFromDb } from './supabase-store';
+import { scanGitHubRepo } from '@shared/engine';
+import type { ScanReport, CheckResult } from '@shared/types';
+import { SCAN_STAGE_LABELS } from '@shared/types';
 
-interface ThreatItem {
-  package: string;
-  vulnerability_type: string;
-  cve_id: string;
-  severity: string;
-  description: string;
-  fix_snippet: string;
-  source: string;
-  published: string;
+export interface DetectionItem {
+  id: string;
+  severity: 'high' | 'warning' | 'info';
+  ruleId: string;
+  location: string;
+  action: string;
+  codeSnippet?: string;
+  age: string;
 }
 
-interface ScanStore {
-  // Scan state
-  report: ScanReport | null;
+export interface ScanHistoryEntry {
+  id: string;
+  repoName: string;
+  timestamp: number;
+  duration: number;
+  score: number;
+  passed: number;
+  failed: number;
+  warned: number;
+  total: number;
+  issueIds: string[];
+}
+
+export interface SinceLastScan {
+  newIssues: string[];
+  fixedIssues: string[];
+  scoreDelta: number;
+  totalDelta: number;
+  previousScore: number | null;
+}
+
+const HISTORY_KEY = 'preflight-scan-history';
+const HISTORY_MAX = 30;
+
+function loadHistory(): ScanHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(history: ScanHistoryEntry[]): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // storage may be unavailable (private mode); ignore
+  }
+}
+
+/** Compare the two most recent scans to show "since your last scan". */
+export function computeSinceLastScan(history: ScanHistoryEntry[]): SinceLastScan | null {
+  if (history.length < 2) return null;
+  const prev = history[history.length - 2];
+  const curr = history[history.length - 1];
+
+  const prevIds = new Set(prev.issueIds);
+  const currIds = new Set(curr.issueIds);
+
+  return {
+    newIssues: curr.issueIds.filter((id) => !prevIds.has(id)),
+    fixedIssues: Array.from(prevIds).filter((id) => !currIds.has(id)),
+    scoreDelta: curr.score - prev.score,
+    totalDelta: curr.total - prev.total,
+    previousScore: prev.score,
+  };
+}
+
+interface ScanState {
+  repoUrl: string;
   isScanning: boolean;
-  progress: ScanProgress | null;
-  error: string | null;
-
-  // Terminal logs
-  terminalLogs: string[];
-  addTerminalLog: (line: string) => void;
-  clearTerminalLogs: () => void;
-
-  // Inspector
-  inspector: InspectorState;
-
-  // History
-  history: ScanReport[];
-
-  // GitHub input
-  repoInput: string;
-  githubToken: string;
-
-  // Live intelligence
-  threats: ThreatItem[];
-  setThreats: (t: ThreatItem[]) => void;
-  threatLoading: boolean;
-  setThreatLoading: (l: boolean) => void;
-  selectedThreat: ThreatItem | null;
-  setSelectedThreat: (t: ThreatItem | null) => void;
-
-  // Supabase sync
-  syncing: boolean;
-  syncError: string | null;
+  scanProgress: string;
+  scanError: string | null;
+  lastReport: ScanReport | null;
+  lastScanTime: number | null;
+  scansCompletedCount: number;
+  detections: DetectionItem[];
+  severityFilter: 'all' | 'high' | 'warning';
+  history: ScanHistoryEntry[];
+  usingAuthToken: boolean;
 
   // Actions
-  setReport: (report: ScanReport | null) => void;
-  setIsScanning: (scanning: boolean) => void;
-  setProgress: (progress: ScanProgress | null) => void;
-  setError: (error: string | null) => void;
-  openInspector: (check: CheckResult, categoryId: CategoryId) => void;
-  closeInspector: () => void;
-  addToHistory: (report: ScanReport) => void;
-  setRepoInput: (input: string) => void;
-  setGithubToken: (token: string) => void;
-
-  // Supabase actions
-  syncToSupabase: (report: ScanReport) => Promise<void>;
-  loadHistoryFromSupabase: () => Promise<void>;
-  loadReportById: (id: string) => Promise<ScanReport | null>;
+  setRepoUrl: (url: string) => void;
+  setSeverityFilter: (filter: 'all' | 'high' | 'warning') => void;
+  triggerScan: (targetRepo?: string) => Promise<ScanReport | null>;
+  downloadSARIFReport: () => void;
+  clearHistory: () => void;
 }
 
-export const useScanStore = create<ScanStore>((set, get) => ({
-  report: null,
+function normalizeRepoUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function reportToDetections(report: ScanReport): DetectionItem[] {
+  const items: DetectionItem[] = [];
+  for (const category of report.categories) {
+    for (const check of category.checks) {
+      if (check.status === 'fail' || check.status === 'warn') {
+        const action = check.suggestedFix
+          ? `${check.message} — ${check.suggestedFix}`
+          : check.message;
+        items.push({
+          id: `${category.categoryId}-${check.checkId}-${items.length}`,
+          severity: check.status === 'fail' ? 'high' : 'warning',
+          ruleId: check.checkId,
+          location: check.file
+            ? `${check.file}${check.line ? `:${check.line}` : ''}`
+            : category.categoryId,
+          action,
+          codeSnippet: check.snippet,
+          age: 'This scan'
+        });
+      }
+    }
+  }
+  return items;
+}
+
+function reportToHistoryEntry(report: ScanReport): ScanHistoryEntry {
+  const issueIds: string[] = [];
+  for (const category of report.categories) {
+    for (const check of category.checks) {
+      if (check.status === 'fail' || check.status === 'warn') {
+        issueIds.push(check.checkId);
+      }
+    }
+  }
+  return {
+    id: report.id,
+    repoName: report.repoName,
+    timestamp: report.timestamp,
+    duration: report.duration,
+    score: report.score.percentage,
+    passed: report.passedChecks,
+    failed: report.failedChecks,
+    warned: report.warningChecks,
+    total: report.totalChecks,
+    issueIds,
+  };
+}
+
+function getGitHubToken(): string | undefined {
+  const fromEnv = (import.meta.env as Record<string, string | undefined>).VITE_GITHUB_TOKEN;
+  if (fromEnv) return fromEnv;
+  try {
+    return localStorage.getItem('github_token') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export const useScanStore = create<ScanState>((set, get) => ({
+  repoUrl: 'github.com/vercel/next.js',
   isScanning: false,
-  progress: null,
-  error: null,
-  syncing: false,
-  syncError: null,
+  scanProgress: '',
+  scanError: null,
+  lastReport: null,
+  lastScanTime: null,
+  scansCompletedCount: 0,
+  detections: [],
+  severityFilter: 'all',
+  history: loadHistory(),
+  usingAuthToken: !!getGitHubToken(),
 
-  terminalLogs: [],
-  addTerminalLog: (line) =>
-    set((state) => ({ terminalLogs: [...state.terminalLogs, line].slice(-200) })),
-  clearTerminalLogs: () => set({ terminalLogs: [] }),
+  setRepoUrl: (url) => set({ repoUrl: url }),
+  setSeverityFilter: (filter) => set({ severityFilter: filter }),
 
-  inspector: { isOpen: false, check: null, categoryId: null, definition: null },
+  triggerScan: async (targetRepo) => {
+    if (get().isScanning) return null;
 
-  history: [],
-  repoInput: '',
-  githubToken: typeof window !== 'undefined' ? sessionStorage.getItem('gh_token') || '' : '',
-
-  threats: [],
-  setThreats: (threats) => set({ threats }),
-  threatLoading: false,
-  setThreatLoading: (threatLoading) => set({ threatLoading }),
-  selectedThreat: null,
-  setSelectedThreat: (selectedThreat) => set({ selectedThreat }),
-
-  setReport: (report) => set({ report }),
-  setIsScanning: (isScanning) => set({ isScanning }),
-  setProgress: (progress) => set({ progress }),
-  setError: (error) => set({ error }),
-
-  openInspector: (check, categoryId) => {
-    const def = getCheckById(check.checkId);
-    set({ inspector: { isOpen: true, check, categoryId, definition: def || null } });
-  },
-
-  closeInspector: () => {
-    set({ inspector: { isOpen: false, check: null, categoryId: null, definition: null }, selectedThreat: null });
-  },
-
-  addToHistory: (report) => {
-    set((state) => {
-      const updated = [report, ...state.history].slice(0, 50);
-      if (isSupabaseConfigured()) {
-        persistReport(report);
-        persistHistory(report);
-      }
-      return { history: updated };
-    });
-  },
-
-  setRepoInput: (repoInput) => set({ repoInput }),
-  setGithubToken: (token) => {
-    sessionStorage.setItem('gh_token', token);
-    set({ githubToken: token });
-  },
-
-  syncToSupabase: async (report) => {
-    if (!isSupabaseConfigured()) return;
-    set({ syncing: true, syncError: null });
-    try {
-      await persistReport(report);
-      await persistHistory(report);
-    } catch (e) {
-      set({ syncError: e instanceof Error ? e.message : 'Sync failed' });
-    } finally {
-      set({ syncing: false });
-    }
-  },
-
-  loadHistoryFromSupabase: async () => {
-    if (!isSupabaseConfigured()) return;
-    set({ syncing: true, syncError: null });
-    try {
-      const reports = await loadHistory();
-      if (reports.length > 0) {
-        set({ history: reports });
-      }
-    } catch (e) {
-      set({ syncError: e instanceof Error ? e.message : 'Load failed' });
-    } finally {
-      set({ syncing: false });
-    }
-  },
-
-  loadReportById: async (id) => {
-    try {
-      return await loadReportFromDb(id);
-    } catch {
+    const target = normalizeRepoUrl(targetRepo || get().repoUrl);
+    if (!target) {
+      set({ scanError: 'Enter a repository link to scan.' });
       return null;
     }
+
+    set({ isScanning: true, scanError: null, scanProgress: 'Starting your scan...' });
+
+    const token = getGitHubToken();
+
+    const report = await scanGitHubRepo(
+      target,
+      undefined,
+      (progress) => {
+        const label = SCAN_STAGE_LABELS[progress.stage] || 'Scanning';
+        set({ scanProgress: `${label}...` });
+      },
+      token
+    );
+
+    if (report.status === 'error') {
+      set({
+        isScanning: false,
+        scanProgress: '',
+        scanError: report.error || 'Scan failed',
+        lastScanTime: report.duration
+      });
+      return report;
+    }
+
+    const entry = reportToHistoryEntry(report);
+    const history = [...get().history, entry].slice(-HISTORY_MAX);
+    saveHistory(history);
+
+    set(() => ({
+      isScanning: false,
+      scanProgress: '',
+      scanError: null,
+      lastReport: report,
+      lastScanTime: report.duration,
+      scansCompletedCount: get().scansCompletedCount + 1,
+      detections: reportToDetections(report),
+      history,
+    }));
+
+    return report;
   },
+
+  clearHistory: () => {
+    saveHistory([]);
+    set({ history: [], lastReport: null, detections: [], scanError: null });
+  },
+
+  downloadSARIFReport: () => {
+    const resultItems: Array<{ ruleId: string; level: string; message: string; file?: string; line?: number }> = [];
+    const report = get().lastReport;
+    if (report) {
+      for (const category of report.categories) {
+        for (const check of category.checks) {
+          if (check.status === 'fail' || check.status === 'warn') {
+            const line = check.line ?? (check.file ? undefined : undefined);
+            resultItems.push({
+              ruleId: check.checkId,
+              level: check.status === 'fail' ? 'error' : 'warning',
+              message: check.message,
+              file: check.file,
+              line: line
+            });
+          }
+        }
+      }
+    }
+
+    const sarif = {
+      $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+      version: "2.1.0",
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: "Preflight Scanner",
+              version: "0.1.0",
+              informationUri: "https://github.com/anomalyco/agent-preflight"
+            }
+          },
+          results: resultItems.map((r) => ({
+            ruleId: r.ruleId,
+            level: r.level,
+            message: { text: r.message },
+            locations: r.file
+              ? [
+                  {
+                    physicalLocation: {
+                      artifactLocation: { uri: r.file },
+                      ...(r.line ? { region: { startLine: r.line } } : {})
+                    }
+                  }
+                ]
+              : []
+          }))
+        }
+      ]
+    };
+
+    const blob = new Blob([JSON.stringify(sarif, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'preflight-scan-results.sarif';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 }));
+
+export type { CheckResult };

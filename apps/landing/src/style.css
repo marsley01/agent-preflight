@@ -2,173 +2,215 @@
 @source "./src";
 @source "./index.html";
 
+/*
+  Preflight design system — "calm neutral" theme.
+  One accent family (near-black) for interactive chrome. Three semantic colors only:
+  green = good, amber = warning, red = issue. Everything else is neutral zinc.
+*/
+
 @theme {
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Outfit", -apple-system, BlinkMacSystemFont, sans-serif;
-  
-  /* Custom Accent Colors */
-  --color-cyber-blue: #3b82f6;
-  --color-cyber-purple: #8b5cf6;
-  --color-cyber-pink: #ec4899;
-  --color-cyber-emerald: #10b981;
-  --color-cyber-dark: #030712;
-  --color-cyber-card: #0b0f19;
-  
-  /* Custom Animations */
-  --animate-glow: pulse-glow 3s ease-in-out infinite;
-  --animate-border-glow: border-glow 4s ease-in-out infinite;
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-scan: scan-line 3s linear infinite;
+  /* --- Neutrals --- */
+  --color-background: #fafafa;
+  --color-on-background: #18181b;
+  --color-surface: #fafafa;
+  --color-surface-bright: #ffffff;
+  --color-surface-variant: #f4f4f5;
+  --color-surface-dim: #e4e4e7;
+
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f4f5;
+  --color-surface-container: #ececef;
+  --color-surface-container-high: #e4e4e7;
+  --color-surface-container-highest: #d4d4d8;
+
+  --color-on-surface: #18181b;
+  --color-on-surface-variant: #52525b;
+  --color-secondary: #71717a;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e4e4e7;
+  --color-on-secondary-container: #3f3f46;
+  --color-secondary-fixed: #f4f4f5;
+  --color-secondary-fixed-dim: #e4e4e7;
+  --color-on-secondary-fixed: #18181b;
+  --color-on-secondary-fixed-variant: #52525b;
+
+  --color-outline: #a1a1aa;
+  --color-outline-variant: #e4e4e7;
+
+  /* --- Accent (near-black, used for primary actions) --- */
+  --color-primary: #18181b;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #f4f4f5;
+  --color-on-primary-container: #3f3f46;
+  --color-primary-fixed: #ffffff;
+  --color-primary-fixed-dim: #e4e4e7;
+  --color-on-primary-fixed: #18181b;
+  --color-on-primary-fixed-variant: #52525b;
+  --color-inverse-primary: #fafafa;
+  --color-inverse-surface: #27272a;
+  --color-inverse-on-surface: #fafafa;
+  --color-surface-tint: #18181b;
+
+  /* --- Positive / "pass" green --- */
+  --color-tertiary: #15803d;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #15803d;
+  --color-on-tertiary-container: #ffffff;
+  --color-tertiary-fixed: #dcfce7;
+  --color-tertiary-fixed-dim: #bbf7d0;
+  --color-on-tertiary-fixed: #166534;
+  --color-on-tertiary-fixed-variant: #15803d;
+
+  /* --- Failure red --- */
+  --color-error: #dc2626;
+  --color-on-error: #ffffff;
+  --color-error-container: #fee2e2;
+  --color-on-error-container: #991b1b;
+
+  /* --- Docs page remap (old "cockpit" dark theme tokens -> this neutral light theme) --- */
+  --color-cockpit-950: #ffffff;
+  --color-cockpit-900: #fafafa;
+  --color-cockpit-850: #f4f4f5;
+  --color-cockpit-800: #f0f0f2;
+  --color-cockpit-700: #e4e4e7;
+  --color-cockpit-border: #e4e4e7;
+  --color-cockpit-borderSubtle: #f0f0f2;
+  --color-cockpit-muted: #71717a;
+  --color-cockpit-text: #52525b;
+  --color-cockpit-bright: #18181b;
+
+  --color-status-pass: #16a34a;
+  --color-status-passMuted: rgba(22, 163, 74, 0.1);
+  --color-status-warn: #d97706;
+  --color-status-warnMuted: rgba(217, 119, 6, 0.1);
+  --color-status-fail: #dc2626;
+  --color-status-failMuted: rgba(220, 38, 38, 0.1);
+  --color-status-cyan: #71717a;
+
+  /* --- Spacing: roomier for a calm, readable feel --- */
+  --spacing-space-xs: 0.375rem;
+  --spacing-space-sm: 0.625rem;
+  --spacing-space-md: 1rem;
+  --spacing-space-lg: 1.625rem;
+  --spacing-space-xl: 2.75rem;
+  --spacing-gutter: 1.25rem;
+  --spacing-gutter-desktop: 2rem;
+  --spacing-margin: 1.25rem;
+  --spacing-margin-desktop: 3rem;
+
+  /* --- Type --- */
+  --font-sans: "Inter", sans-serif;
+  --font-syne: "Inter", sans-serif;
+  --font-body-md: "Inter", sans-serif;
+  --font-headline-md: "Inter", sans-serif;
+  --font-body-lg: "Inter", sans-serif;
+  --font-headline-sm: "Inter", sans-serif;
+  --font-label-md: "Inter", sans-serif;
+  --font-body-sm: "Inter", sans-serif;
+  --font-code-inline: "JetBrains Mono", monospace;
+  --font-label-sm: "Inter", sans-serif;
+  --font-headline-lg-mobile: "Inter", sans-serif;
+  --font-headline-lg: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.2; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.05); }
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--color-background);
+    color: var(--color-on-surface);
+    font-family: var(--font-body-md);
+  }
+  body {
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  main > :first-child {
+    margin-top: 0 !important;
+  }
+  main > :last-child {
+    margin-bottom: 0 !important;
+  }
+  ::selection {
+    background-color: var(--color-tertiary-fixed);
+    color: var(--color-on-tertiary-fixed);
+  }
 }
 
-@keyframes border-glow {
-  0%, 100% { border-color: rgba(59, 130, 246, 0.2); box-shadow: 0 0 15px rgba(59, 130, 246, 0.05); }
-  50% { border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 0 25px rgba(139, 92, 246, 0.15); }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-
-@keyframes scan-line {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
-}
-
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html, body, #root {
-  height: 100%;
-  width: 100%;
-  font-family: var(--font-sans);
-  background-color: #030712; /* base background */
-  color: #f1f5f9;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-}
-
-/* Custom Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  display: none;
 }
 
-/* Apple-Inspired Button Styles */
-.btn-apple {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 28px;
-  border-radius: 9999px;
+/* Readability-first type scale: generous line-height (>= 1.6), gentle letter-spacing */
+.font-body-md {
+  font-family: "Inter", sans-serif;
   font-size: 14px;
-  font-weight: 600;
-  font-family: var(--font-sans);
-  line-height: 1;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-  border: none;
-  outline: none;
-  user-select: none;
-  -webkit-font-smoothing: antialiased;
+  line-height: 1.7;
+  letter-spacing: 0.005em;
 }
 
-.btn-apple:active {
-  transform: scale(0.96);
+.font-headline-md {
+  font-family: "Inter", sans-serif;
+  font-size: 21px;
+  line-height: 1.4;
+  letter-spacing: -0.015em;
+  font-weight: 650;
 }
 
-.btn-apple-primary {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
-}
-.btn-apple-primary:hover {
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
-  transform: translateY(-1px);
+.font-body-lg {
+  font-family: "Inter", sans-serif;
+  font-size: 16px;
+  line-height: 1.75;
+  letter-spacing: 0.005em;
 }
 
-.btn-apple-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(8px);
-}
-.btn-apple-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-1px);
+.font-headline-sm {
+  font-family: "Inter", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  font-weight: 650;
 }
 
-.btn-apple-ghost {
-  background: transparent;
-  color: #94a3b8;
-  padding: 8px 16px;
-}
-.btn-apple-ghost:hover {
-  color: white;
-  background: rgba(255, 255, 255, 0.05);
+.font-label-md {
+  font-family: "Inter", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  font-weight: 500;
 }
 
-/* Spacing Utilities */
-.section-gap { gap: 4rem; }
-.section-gap-lg { gap: 6rem; }
-.section-gap-xl { gap: 8rem; }
-.content-max { max-width: 80rem; margin-left: auto; margin-right: auto; }
-.flex-wrap-gap { flex-wrap: wrap; gap: 1.5rem; }
-
-/* Glassmorphism Classes */
-.glass-panel {
-  background: rgba(11, 15, 25, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+.font-body-sm {
+  font-family: "Inter", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
 }
 
-.glass-panel-hover {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.glass-panel-hover:hover {
-  background: rgba(11, 15, 25, 0.85);
-  border-color: rgba(59, 130, 246, 0.3);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  transform: translateY(-2px);
+.font-code-inline {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-/* Custom Gradients */
-.bg-gradient-cyber {
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+.font-label-sm {
+  font-family: "Inter", sans-serif;
+  font-size: 11.5px;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  font-weight: 500;
 }
 
-.text-gradient-cyber {
-  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #f472b6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.font-headline-lg {
+  font-family: "Inter", sans-serif;
+  font-size: 32px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  font-weight: 700;
 }
 
-.bg-grid-pattern {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+.font-headline-sm-mobile {
+  font-family: "Inter", sans-serif;
 }
