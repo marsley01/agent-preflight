@@ -6,7 +6,7 @@ It is **optional and self-hosted**. The CLI and the web UI don't call it today. 
 
 ## Run it
 
-Requires Python 3.10+ (CI runs 3.12).
+Requires Python 3.11+ (CI runs 3.12).
 
 ```bash
 cd packages/vuln-engine
