@@ -1,93 +1,47 @@
-import fs from 'fs';
-import path from 'path';
-import { glob } from 'glob';
-import type { CheckResult } from '../scan';
+import type { ProjectContext } from '../context.js';
+import { type CheckResult, pass, warn, info } from '../types.js';
+
+const GQL_SERVER_DEPS = ['@apollo/server', 'apollo-server', 'apollo-server-express', 'graphql-yoga', 'mercurius', 'express-graphql', 'graphql-http', '@graphql-yoga/node', 'type-graphql', '@nestjs/graphql', 'pothos', '@pothos/core'];
+const GQL_SERVER_CODE = /new\s+ApolloServer|createYoga|createHandler|graphqlHTTP|mercurius|GraphQLModule\.forRoot/;
 
 /**
- * Check for GraphQL security issues:
- * - Query depth limiting (prevents recursive/malicious queries)
- * - Authentication context on GraphQL endpoints
+ * Check GraphQL *servers* (client-only usage is skipped):
+ * - Query depth / complexity limiting
  * - Introspection disabled in production
+ * - Auth in the resolver context
  */
-export async function runGraphqlChecks(dir: string): Promise<CheckResult[]> {
+export function runGraphqlChecks(ctx: ProjectContext): CheckResult[] {
+  const servers = ctx.code.filter((f) => GQL_SERVER_CODE.test(f.content));
+  if (servers.length === 0 && !ctx.hasDependency(...GQL_SERVER_DEPS)) {
+    return [info('graphql/not-applicable', 'No GraphQL server detected — skipping GraphQL checks')];
+  }
+
   const results: CheckResult[] = [];
+  const all = servers.map((f) => f.content).join('\n');
+  const file = servers[0]?.rel;
 
-  const gqlFiles = await glob(`${dir}/**/*.{graphql,gql}`, { ignore: ['**/node_modules/**'] });
-  const gqlTsFiles = await glob(`${dir}/src/**/*.ts`, { ignore: ['**/node_modules/**'] });
+  const hasDepthLimit = ctx.hasDependency('graphql-depth-limit', 'graphql-query-complexity', '@escape.tech/graphql-armor', 'graphql-armor', '@envelop/depth-limit')
+    || /depthLimit|maxDepth|costLimit|queryComplexity|createComplexityRule/.test(all);
+  results.push(hasDepthLimit
+    ? pass('graphql/depth-limit', 'Query depth/complexity limiting found')
+    : warn('graphql/depth-limit', 'medium', 'No depth or complexity limit — a single nested query can exhaust your server', {
+      file, fix: 'Add graphql-armor or graphql-depth-limit as a validation rule.',
+    }));
 
-  const allGqlFiles = [...gqlFiles, ...gqlTsFiles.filter(f => {
-    const content = fs.readFileSync(f, 'utf-8');
-    return content.includes('graphql') || content.includes('GraphQL') || content.includes('gql`') || content.includes('apollo') || content.includes('urql');
-  })];
+  const introspectionOff = /introspection\s*:\s*(false|process\.env\.NODE_ENV\s*!==?\s*['"]production['"]|!\s*isProd|isDev)/.test(all)
+    || /useDisableIntrospection|NoSchemaIntrospectionCustomRule/.test(all);
+  results.push(introspectionOff
+    ? pass('graphql/introspection', 'Introspection disabled in production')
+    : warn('graphql/introspection', 'low', 'Introspection may be enabled in production — your full schema is public', {
+      file, fix: "Set `introspection: process.env.NODE_ENV !== 'production'`.",
+    }));
 
-  if (allGqlFiles.length === 0) {
-    results.push({ status: 'warn', message: 'No GraphQL files detected \u2014 skipping GraphQL checks' });
-    return results;
-  }
-
-  let hasDepthLimit = false;
-  let depthFile: string | undefined;
-
-  for (const file of allGqlFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (
-      content.includes('depthLimit') ||
-      content.includes('queryDepth') ||
-      content.includes('maxDepth') ||
-      content.includes('validationRules') ||
-      content.includes('complexity')
-    ) {
-      hasDepthLimit = true;
-      depthFile = path.relative(dir, file);
-      break;
-    }
-  }
-
-  if (hasDepthLimit) {
-    results.push({ status: 'pass', message: 'GraphQL query depth limiting found', file: depthFile });
-  } else {
-    results.push({ status: 'warn', message: 'No GraphQL depth limiting found \u2014 malicious queries can exhaust your server' });
-  }
-
-  let hasAuth = false;
-  let authFile: string | undefined;
-
-  for (const file of allGqlFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (
-      content.includes('context') && (
-        content.includes('token') ||
-        content.includes('auth') ||
-        content.includes('session') ||
-        content.includes('bearer')
-      )
-    ) {
-      hasAuth = true;
-      authFile = path.relative(dir, file);
-      break;
-    }
-  }
-
-  if (hasAuth) {
-    results.push({ status: 'pass', message: 'GraphQL authentication context found', file: authFile });
-  } else {
-    results.push({ status: 'warn', message: 'No GraphQL auth context detected \u2014 your GraphQL endpoint may be public' });
-  }
-
-  let introspectionDisabled = false;
-  for (const file of allGqlFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (content.includes('introspection') && (content.includes('false') || content.includes('disabled') || content.includes('0'))) {
-      introspectionDisabled = true;
-      break;
-    }
-  }
-
-  results.push(
-    introspectionDisabled
-      ? { status: 'pass', message: 'GraphQL introspection disabled in production' }
-      : { status: 'warn', message: 'GraphQL introspection may be enabled \u2014 attackers can discover your entire schema' }
-  );
+  const hasAuthContext = /context\s*:[\s\S]{0,400}(token|auth|session|user|authorization)/i.test(all);
+  results.push(hasAuthContext
+    ? pass('graphql/auth-context', 'Auth information passed into resolver context')
+    : warn('graphql/auth-context', 'high', 'No auth in GraphQL context — resolvers cannot check who is calling', {
+      file, fix: 'Resolve the user from the Authorization header in `context` and check it in resolvers.',
+    }));
 
   return results;
 }

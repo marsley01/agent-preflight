@@ -1,42 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Footer, Header } from './Header';
+import { SearchModal } from './SearchModal';
+import { Toast } from './Toast';
+import { useShellState } from '../pages/DashboardPage';
 
 const docsBody = `
-<header class="sticky top-0 z-50 border-b border-cockpit-border/80 bg-cockpit-950/90 backdrop-blur-md">
-  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-    <div class="flex items-center gap-4">
-      <a href="/" class="flex items-center gap-2.5 group">
-        <div class="relative w-7 h-7 rounded-md bg-cockpit-900 border border-cockpit-border flex items-center justify-center text-status-pass">
-          <svg class="w-4 h-4 text-status-pass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <circle cx="12" cy="12" r="9" stroke-dasharray="3 3" opacity="0.6"></circle>
-            <circle cx="12" cy="12" r="4" stroke="currentColor"></circle>
-            <line x1="12" y1="3" x2="12" y2="21" stroke-opacity="0.3"></line>
-            <line x1="3" y1="12" x2="21" y2="12" stroke-opacity="0.3"></line>
-            <circle cx="12" cy="12" r="1.5" fill="#16a34a"></circle>
-          </svg>
-          <span class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-status-pass shadow-[0_0_8px_#16a34a]"></span>
-        </div>
-        <span class="font-syne font-bold text-lg text-cockpit-bright tracking-tight group-hover:text-status-pass transition-colors">Preflight</span>
-      </a>
-      <span class="px-2 py-0.5 rounded text-[11px] font-mono uppercase tracking-wider bg-cockpit-850 text-cockpit-muted border border-cockpit-borderSubtle">Docs</span>
-    </div>
-    <div class="flex items-center gap-4 text-xs font-mono">
-      <div class="relative hidden sm:block">
-        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-cockpit-900/80 border border-cockpit-border text-cockpit-muted text-xs font-mono">
-          <svg class="w-3.5 h-3.5 text-cockpit-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-          <span class="">Search checks...</span>
-          <kbd class="px-1.5 py-0.5 text-[10px] bg-cockpit-850 rounded border border-cockpit-borderSubtle text-cockpit-muted">⌘K</kbd>
-        </div>
-      </div>
-      <a href="https://github.com/anomalyco/agent-preflight" target="_blank" rel="noreferrer" class="flex items-center gap-1.5 text-cockpit-muted hover:text-cockpit-bright transition-colors">
-        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path></svg>
-        <span class="hidden sm:inline">GitHub</span>
-      </a>
-    </div>
-  </div>
-</header>
 
-<div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 flex">
-  <aside class="w-64 shrink-0 hidden lg:block sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto py-8 pr-6 border-r border-cockpit-border/50 text-sm">
+
+<div class="max-w-[1280px] mx-auto px-4 sm:px-6 flex">
+  <aside class="w-64 shrink-0 hidden lg:block sticky top-14 h-[calc(100dvh-3.5rem)] overflow-y-auto py-8 pr-6 border-r border-cockpit-border/50 text-sm">
     <div class="space-y-7">
       <div>
         <div class="px-3 mb-2 text-[11px] font-mono uppercase tracking-widest text-cockpit-muted flex items-center gap-1.5">
@@ -83,11 +55,11 @@ const docsBody = `
         <span>The checks behind every Preflight scan</span>
       </div>
       <h1 class="font-syne font-bold text-3xl sm:text-4xl text-cockpit-bright tracking-tight mb-4">Preflight Documentation</h1>
-      <p class="text-base sm:text-lg text-cockpit-bright/90 leading-relaxed max-w-3xl font-normal">Preflight looks at your code — not your deployed site — and checks it for the mistakes that break AI-built apps. It runs in seconds, and nothing leaves your machine unless you use the "paste a repo link" option above.</p>
+      <p class="text-base sm:text-lg text-cockpit-bright/90 leading-relaxed max-w-3xl font-normal">Preflight looks at your code, not your deployed site, and checks it for the mistakes that break AI-built apps. It runs in seconds, and nothing leaves your machine unless you use the "paste a repo link" option above.</p>
       <div class="mt-6 p-4 rounded-lg bg-cockpit-900 border border-cockpit-border max-w-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div class="text-xs font-mono text-cockpit-muted mb-1">QUICK START — SCAN ANY REPO</div>
-          <code class="font-mono text-sm text-status-pass font-medium select-all">$ npx agent-preflight scan</code>
+          <div class="text-xs font-mono text-cockpit-muted mb-1">QUICK START</div>
+          <code class="font-mono text-sm text-status-pass font-medium select-all">$ npx @preflight-agent/cli scan</code>
         </div>
         <a href="/" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cockpit-bright text-cockpit-950 text-sm font-medium hover:opacity-90 transition-opacity">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -97,23 +69,23 @@ const docsBody = `
     </section>
 
     <section id="getting-started" class="scroll-mt-20 border-b border-cockpit-border/60 pb-12 space-y-6">
-      <div><div class="text-xs font-mono text-cockpit-muted uppercase tracking-wider mb-1">SECTION 01</div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Getting Started</h2></div>
-      <p class="text-sm sm:text-base leading-relaxed max-w-3xl">Preflight walks through your Next.js route handlers, server actions, client components, and Supabase SQL migrations, checking each against eight categories of rules. It finishes in seconds, right on your machine.</p>
+      <div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Getting Started</h2></div>
+      <p class="text-sm sm:text-base leading-relaxed max-w-3xl">Preflight walks through your Next.js route handlers, server actions, client components, and Supabase SQL migrations, checking each against its rules. It finishes in seconds, right on your machine.</p>
       <div class="space-y-4 max-w-3xl">
         <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden">
           <div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">1. Run locally in repo root</span><span class="text-cockpit-muted">terminal</span></div>
-          <div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto"><span class="text-cockpit-muted"># Execute root scan across /app, /pages, and /supabase/migrations</span><br><span class="text-status-pass">$</span> npx agent-preflight scan<br><br><span class="text-cockpit-muted"># Optional: target a specific path or SQL migration folder</span><br><span class="text-status-pass">$</span> npx agent-preflight scan --dir=./supabase/migrations --strict</div>
+          <div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto"><span class="text-cockpit-muted"># Execute root scan across /app, /pages, and /supabase/migrations</span><br><span class="text-status-pass">$</span> npx @preflight-agent/cli scan<br><br><span class="text-cockpit-muted"># Optional: scan another directory, or only some categories</span><br><span class="text-status-pass">$</span> npx @preflight-agent/cli scan ./my-app --only database,security</div>
         </div>
         <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden">
           <div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">2. GitHub Actions CI Integration</span><span class="text-cockpit-muted">.github/workflows/preflight.yml</span></div>
-          <div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed"><span class="text-cockpit-muted">name:</span> Preflight Verification<br><span class="text-cockpit-muted">on:</span> [pull_request, push]<br><span class="text-cockpit-muted">jobs:</span><br>&nbsp;&nbsp;<span class="text-cockpit-muted">verify:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-cockpit-muted">runs-on:</span> ubuntu-latest<br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-cockpit-muted">steps:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="text-cockpit-muted">uses:</span> actions/checkout@v4<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="text-cockpit-muted">run:</span> npx agent-preflight scan --exit-code-on-fail</div>
+          <div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed"><span class="text-cockpit-muted">name:</span> Preflight Verification<br><span class="text-cockpit-muted">on:</span> [pull_request, push]<br><span class="text-cockpit-muted">jobs:</span><br>&nbsp;&nbsp;<span class="text-cockpit-muted">verify:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-cockpit-muted">runs-on:</span> ubuntu-latest<br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-cockpit-muted">steps:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="text-cockpit-muted">uses:</span> actions/checkout@v4<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span class="text-cockpit-muted">run:</span> npx -y @preflight-agent/cli scan --fail-on high</div>
         </div>
       </div>
     </section>
 
     <section id="security" class="scroll-mt-20 border-b border-cockpit-border/60 pb-12 space-y-6">
       <div class="flex items-center justify-between max-w-4xl">
-        <div><div class="flex items-center gap-2 text-xs font-mono text-status-fail mb-1"><span class="w-2 h-2 rounded-full bg-status-fail"></span><span>SECURITY — EXPLOITABLE BY DEFAULT</span></div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Security Checks</h2></div>
+        <div><div class="flex items-center gap-2 text-xs font-mono text-status-fail mb-1"><span class="w-2 h-2 rounded-full bg-status-fail"></span><span>SECURITY: EXPLOITABLE BY DEFAULT</span></div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Security Checks</h2></div>
       </div>
       <p class="text-sm sm:text-base leading-relaxed max-w-4xl">Checks covering secret exposure, leaking credentials, permissive access headers, and sensitive debug traces before code is pushed to remotes or bundled into client assets.</p>
       <div class="space-y-4 max-w-4xl">
@@ -124,7 +96,7 @@ const docsBody = `
               <code class="text-xs font-mono text-cockpit-muted mt-0.5 inline-block">SEC-001: HARDCODED_PLAINTEXT_SECRET</code>
             </div>
           </div>
-          <p class="text-sm text-cockpit-text leading-relaxed">A developer pastes a key directly into a file to "get it working," forgets to move it to <code class="font-mono text-cockpit-bright bg-cockpit-850 px-1 py-0.5 rounded text-xs">.env</code>. Anyone with repo access — or anyone who finds the repo public — has it.</p>
+          <p class="text-sm text-cockpit-text leading-relaxed">A developer pastes a key directly into a file to "get it working," forgets to move it to <code class="font-mono text-cockpit-bright bg-cockpit-850 px-1 py-0.5 rounded text-xs">.env</code>. Anyone with repo access, or anyone who finds the repo public, has it.</p>
           <div class="p-3 rounded bg-cockpit-950 border border-cockpit-borderSubtle text-xs font-mono space-y-1"><div class="text-status-warn flex items-center gap-1.5"><svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg><span><strong>Who finds this if Preflight doesn't:</strong> Automated secret scanners run by bots indexing public commits within seconds, or an unauthorized collaborator.</span></div></div>
         </div>
         <div class="p-5 rounded-lg bg-cockpit-900 border border-cockpit-border space-y-3">
@@ -431,16 +403,16 @@ const docsBody = `
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl">
         <div class="p-5 rounded-lg bg-cockpit-900 border border-status-fail/30 relative overflow-hidden"><div class="flex items-center justify-between mb-3"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-status-fail shadow-[0_0_10px_#ef4444]"></span><span class="font-mono font-bold text-status-fail text-sm">RED // FAIL</span></div></div><h4 class="font-syne font-semibold text-cockpit-bright text-base mb-1">Blocks Deploy Recommendation</h4><p class="text-xs text-cockpit-text leading-relaxed">Critical security or transactional leak. Examples include public service role keys, open RLS without auth checks, and unverified payment webhooks. Fails CI gate automatically.</p></div>
         <div class="p-5 rounded-lg bg-cockpit-900 border border-status-warn/30 relative overflow-hidden"><div class="flex items-center justify-between mb-3"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-status-warn shadow-[0_0_10px_#f59e0b]"></span><span class="font-mono font-bold text-status-warn text-sm">AMBER // WARN</span></div></div><h4 class="font-syne font-semibold text-cockpit-bright text-base mb-1">Should Fix / Non-Blocking</h4><p class="text-xs text-cockpit-text leading-relaxed">Architectural risks, missing indexes, unpaginated lists, or verbose error traces. Highlighted prominently in terminal stdout but does not halt deployment pipelines by default.</p></div>
-        <div class="p-5 rounded-lg bg-cockpit-900 border border-status-pass/30 relative overflow-hidden"><div class="flex items-center justify-between mb-3"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-status-pass shadow-[0_0_10px_#16a34a]"></span><span class="font-mono font-bold text-status-pass text-sm">PASSED</span></div></div><h4 class="font-syne font-semibold text-cockpit-bright text-base mb-1">Compliant AST Invariants</h4><p class="text-xs text-cockpit-text leading-relaxed">Rule invariant satisfied. Verified cryptographic signatures, scoped RLS with tenant boundaries, secure cookie directives, and rate-limited public routes.</p></div>
+        <div class="p-5 rounded-lg bg-cockpit-900 border border-status-pass/30 relative overflow-hidden"><div class="flex items-center justify-between mb-3"><div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-status-pass shadow-[0_0_10px_#16a34a]"></span><span class="font-mono font-bold text-status-pass text-sm">PASSED</span></div></div><h4 class="font-syne font-semibold text-cockpit-bright text-base mb-1">Check passed</h4><p class="text-xs text-cockpit-text leading-relaxed">Rule invariant satisfied. Verified cryptographic signatures, scoped RLS with tenant boundaries, secure cookie directives, and rate-limited public routes.</p></div>
       </div>
     </section>
 
     <section id="ignoring-a-check" class="scroll-mt-20 border-b border-cockpit-border/60 pb-12 space-y-6">
       <div><div class="text-xs font-mono text-cockpit-muted uppercase tracking-wider mb-1">CONFIGURATION DIRECTIVES</div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Ignoring a Check</h2></div>
-      <p class="text-sm sm:text-base leading-relaxed max-w-3xl">To suppress a diagnostic, specify an inline suppression comment directly above the flagged line, or register rule exceptions in your project configuration file. <strong>A documented reason is mandatory</strong> to prevent unthinking bypasses.</p>
+      <p class="text-sm sm:text-base leading-relaxed max-w-3xl">To suppress a diagnostic, specify an inline suppression comment directly above the flagged line, or exclude whole paths in a <code class="font-mono text-xs">.preflightignore</code> file. <strong>Always write the reason</strong> so it is visible in code review.</p>
       <div class="space-y-4 max-w-3xl">
-        <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden"><div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">Inline Comment Syntax (Reason Required)</span><span class="text-cockpit-muted">TypeScript / SQL</span></div><div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed"><span class="text-cockpit-muted">// preflight-disable-next-line PAY-001: mock webhook in staging tests</span><br><span class="text-cockpit-bright">export async function POST(req: Request) {</span><br>&nbsp;&nbsp;<span class="text-cockpit-muted">// Handler logic runs without failing PAY-001 verification</span><br><span class="text-cockpit-bright">}</span></div></div>
-        <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden"><div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">Project Config Syntax</span><span class="text-cockpit-muted">.preflightrc.json</span></div><div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed">{<br>&nbsp;&nbsp;<span class="text-status-cyan">"rules"</span>: {<br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-status-cyan">"DB-005"</span>: <span class="text-status-warn">"warn"</span>,<br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-status-cyan">"PERF-003"</span>: <span class="text-cockpit-muted">"off"</span><br>&nbsp;&nbsp;},<br>&nbsp;&nbsp;<span class="text-status-cyan">"ignore"</span>: [<br>&nbsp;&nbsp;&nbsp;&nbsp;{<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-status-cyan">"rule"</span>: <span class="text-cockpit-bright">"SEC-004"</span>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-status-cyan">"path"</span>: <span class="text-cockpit-bright">"app/api/public-health/route.ts"</span>,<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-status-cyan">"reason"</span>: <span class="text-status-pass">"Endpoint exposes no tenant data; public health ping"</span><br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;]<br>}</div></div>
+        <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden"><div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">Inline Comment Syntax (Reason Required)</span><span class="text-cockpit-muted">TypeScript / SQL</span></div><div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed"><span class="text-cockpit-muted">// preflight-ignore: fixture key, only used by the test suite</span><br><span class="text-cockpit-bright">const TEST_KEY = 'sk_test_...';</span><br><br><span class="text-cockpit-muted">-- Applies to the same line or the line directly below.</span></div></div>
+        <div class="rounded-lg bg-cockpit-900 border border-cockpit-border overflow-hidden"><div class="px-4 py-2 border-b border-cockpit-borderSubtle bg-cockpit-850/60 flex items-center justify-between text-xs font-mono"><span class="text-cockpit-bright">Path Exclusions</span><span class="text-cockpit-muted">.preflightignore</span></div><div class="p-4 font-mono text-xs text-cockpit-bright bg-cockpit-950 overflow-x-auto leading-relaxed"><span class="text-cockpit-muted"># gitignore-style globs, one per line</span><br><span class="text-cockpit-muted"># public health ping, exposes no tenant data</span><br><span class="text-cockpit-bright">app/api/public-health/</span><br><span class="text-cockpit-bright">scripts/seed/</span><br><span class="text-cockpit-bright">**/*.generated.ts</span></div></div>
       </div>
     </section>
 
@@ -448,31 +420,45 @@ const docsBody = `
       <div><div class="text-xs font-mono text-cockpit-muted uppercase tracking-wider mb-1">OPEN SOURCE LICENSE</div><h2 class="font-syne font-bold text-2xl text-cockpit-bright">Contributing</h2></div>
       <div class="p-6 rounded-lg bg-cockpit-900 border border-cockpit-border max-w-3xl space-y-4">
         <p class="text-sm sm:text-base leading-relaxed text-cockpit-bright font-normal">Preflight is free and open-source software distributed under the <strong>MIT License</strong>. We have zero telemetry lock-in and zero commercial upsells.</p>
-        <p class="text-sm leading-relaxed text-cockpit-text">Issues and PRs welcome. If you discover a common AST anti-pattern or missing security invariant in Next.js 14/15 or Supabase migrations, submit a reproducible test case on GitHub.</p>
+        <p class="text-sm leading-relaxed text-cockpit-text">Issues and PRs welcome. If Preflight misses a real problem or flags something safe, open an issue with a minimal example.</p>
         <div class="pt-2 flex flex-wrap items-center gap-3 text-xs font-mono">
-          <a href="https://github.com/agent-preflight" target="_blank" rel="noreferrer" class="px-3.5 py-2 rounded bg-cockpit-850 hover:bg-cockpit-800 border border-cockpit-border text-cockpit-bright transition-colors flex items-center gap-2">
+          <a href="https://github.com/anomalyco/agent-preflight" target="_blank" rel="noreferrer" class="px-3.5 py-2 rounded bg-cockpit-850 hover:bg-cockpit-800 border border-cockpit-border text-cockpit-bright transition-colors flex items-center gap-2">
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path></svg>
-            <span>github.com/agent-preflight</span>
+            <span>github.com/anomalyco/agent-preflight</span>
           </a>
-          <span class="text-cockpit-muted">Apache-2.0 / MIT Dual License</span>
+          <span class="text-cockpit-muted">MIT License</span>
         </div>
       </div>
     </section>
 
-    <footer class="border-t border-cockpit-border/50 pt-8 pb-12 text-xs font-mono flex flex-col sm:flex-row items-center justify-between gap-4 text-cockpit-muted">
-      <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-status-pass"></span><span>PREFLIGHT ENGINE SPEC // DETERMINISTIC EVALUATION</span></div>
-      <div class="flex items-center gap-6"><a href="#" class="hover:text-cockpit-bright transition-colors">CLI Source</a><a href="#" class="hover:text-cockpit-bright transition-colors">AST Grammar</a><a href="#" class="hover:text-cockpit-bright transition-colors">Changelog</a></div>
-    </footer>
+    
   </main>
 </div>
 `;
 
+/** /docs: static reference content inside the same shell (header, search, footer) as the app. */
 const DocsPage: React.FC = () => {
+  const { navigate, isSearchOpen, setIsSearchOpen, toastMessage, setToastMessage } = useShellState();
+  const goTab = (tab: string) => navigate(tab === 'scan' ? '/' : `/?tab=${tab}`);
+
+  useEffect(() => {
+    document.title = 'Docs | Preflight';
+  }, []);
+
   return (
-    <div
-      className="min-h-screen bg-cockpit-950 text-cockpit-text antialiased"
-      dangerouslySetInnerHTML={{ __html: docsBody }}
-    />
+    <div className="flex min-h-[100dvh] flex-col bg-background text-on-surface">
+      <Header activeTab="docs" onTabChange={goTab} onOpenSearch={() => setIsSearchOpen(true)} />
+      <SearchModal
+        isOpen={isSearchOpen}
+        onOpen={() => setIsSearchOpen(true)}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectPath={(path) => (path === '/docs' ? window.scrollTo({ top: 0 }) : goTab(path))}
+      />
+      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      {/* Static, author-controlled HTML (no user input), so innerHTML is safe here. */}
+      <div className="flex-1 text-cockpit-text" dangerouslySetInnerHTML={{ __html: docsBody }} />
+      <Footer />
+    </div>
   );
 };
 

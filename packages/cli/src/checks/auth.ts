@@ -1,81 +1,59 @@
-import fs from 'fs';
-import path from 'path';
-import { glob } from 'glob';
-import type { CheckResult } from '../scan';
+import type { ProjectContext } from '../context.js';
+import { type CheckResult, pass, warn, info } from '../types.js';
+import { findRouteFiles, MUTATING, AUTH_SIGNAL, WEBHOOK } from './routes.js';
+
+const MIDDLEWARE = /^(src\/)?(middleware|proxy)\.[jt]s$|(^|\/)hooks\.server\.[jt]s$/;
+const PRIVATE_HINT = /userId|user_id|\bdb\.|prisma\.|supabase\.from|\.from\(['"]|insert|update|delete|admin/i;
 
 /**
  * Check for authentication issues:
- * - Auth middleware file exists (middleware.ts)
- * - Auth secret documented in .env.example
- * - API routes that handle private data have auth checks
+ * - Auth middleware present (Next.js middleware/proxy, SvelteKit hooks)
+ * - Mutating route handlers that touch data with no visible auth check
+ * - Auth secret documented in .env.example (only when an auth library is used)
  */
-export async function runAuthChecks(dir: string): Promise<CheckResult[]> {
+export function runAuthChecks(ctx: ProjectContext): CheckResult[] {
   const results: CheckResult[] = [];
+  const routes = findRouteFiles(ctx);
 
-  const middlewarePaths = [
-    path.join(dir, 'middleware.ts'),
-    path.join(dir, 'src/middleware.ts'),
-    path.join(dir, 'middleware.js'),
-  ];
-
-  const hasMiddleware = middlewarePaths.some(fs.existsSync);
-  if (hasMiddleware) {
-    results.push({ status: 'pass', message: 'Auth middleware file found' });
-  } else {
-    results.push({ status: 'warn', message: 'No middleware.ts found \u2014 protected routes may be unsecured' });
+  if (routes.length === 0) {
+    return [info('auth/not-applicable', 'No server route handlers found — skipping auth checks')];
   }
 
-  const envExamplePath = path.join(dir, '.env.example');
-  if (fs.existsSync(envExamplePath)) {
-    const envExample = fs.readFileSync(envExamplePath, 'utf-8');
-    const hasAuthSecret =
-      envExample.includes('JWT_SECRET') ||
-      envExample.includes('NEXTAUTH_SECRET') ||
-      envExample.includes('AUTH_SECRET');
-    if (hasAuthSecret) {
-      results.push({ status: 'pass', message: 'Auth secret documented in .env.example' });
-    } else {
-      results.push({ status: 'warn', message: 'No JWT_SECRET or NEXTAUTH_SECRET in .env.example' });
-    }
+  const middleware = ctx.code.find((f) => MIDDLEWARE.test(f.rel));
+  const middlewareAuth = middleware && AUTH_SIGNAL.test(middleware.content);
+  if (middlewareAuth) {
+    results.push(pass('auth/middleware', 'Auth middleware found', { file: middleware.rel }));
+  } else if (middleware) {
+    results.push(warn('auth/middleware', 'low', 'Middleware exists but no auth check detected in it', { file: middleware.rel }));
+  } else if (ctx.hasDependency('next', '@sveltejs/kit')) {
+    results.push(warn('auth/middleware', 'low', 'No middleware.ts / hooks.server.ts — every route must check auth itself'));
   }
 
-  const apiFiles = await glob(`${dir}/src/app/api/**/*.ts`, { ignore: ['**/node_modules/**'] });
-  const suspiciousRoutes: string[] = [];
+  const unprotected = routes.filter((f) =>
+    MUTATING.test(f.content) &&
+    PRIVATE_HINT.test(f.content) &&
+    !AUTH_SIGNAL.test(f.content) &&
+    !WEBHOOK.test(f.rel) &&
+    !/(^|\/)(auth|login|signup|register|signin|public)\b/i.test(f.rel),
+  );
 
-  for (const file of apiFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    const hasAuthCheck =
-      content.includes('getServerSession') ||
-      content.includes('auth()') ||
-      content.includes('verifyToken') ||
-      content.includes('supabase.auth') ||
-      content.includes('requireAuth') ||
-      content.includes('middleware');
-
-    const looksPrivate =
-      content.includes('userId') ||
-      content.includes('user_id') ||
-      content.includes('DELETE') ||
-      content.includes('UPDATE') ||
-      file.includes('/admin/') ||
-      file.includes('/user/') ||
-      file.includes('/profile/');
-
-    if (looksPrivate && !hasAuthCheck) {
-      suspiciousRoutes.push(path.relative(dir, file));
-    }
+  for (const f of unprotected.slice(0, 10)) {
+    results.push(warn('auth/unprotected-mutation', middlewareAuth ? 'low' : 'high',
+      'Route writes data but has no visible auth check — anyone may be able to call it', {
+        file: f.rel,
+        fix: 'Verify the session at the top of the handler (e.g. `const user = await getUser(); if (!user) return new Response(null, { status: 401 })`).',
+      }));
+  }
+  if (unprotected.length === 0) {
+    results.push(pass('auth/route-guards', `Auth checks found on mutating routes (${routes.length} route files scanned)`));
   }
 
-  if (suspiciousRoutes.length > 0) {
-    for (const route of suspiciousRoutes.slice(0, 3)) {
-      results.push({
-        status: 'warn',
-        message: 'No auth check detected in route that may require it',
-        file: route,
-      });
-    }
-  } else if (apiFiles.length > 0) {
-    results.push({ status: 'pass', message: 'Auth checks found in API routes' });
+  const usesAuthLib = ctx.hasDependency('next-auth', '@auth/core', 'jsonwebtoken', 'jose', 'lucia', 'better-auth', 'passport', 'express-session');
+  const envExample = ctx.first('.env.example', '.env.sample', '.env.template');
+  if (usesAuthLib && envExample) {
+    results.push(/JWT_SECRET|NEXTAUTH_SECRET|AUTH_SECRET|SESSION_SECRET|BETTER_AUTH_SECRET/.test(envExample.content)
+      ? pass('auth/secret-documented', 'Auth secret documented in .env.example')
+      : warn('auth/secret-documented', 'low', 'Auth library in use but no AUTH_SECRET / JWT_SECRET in .env.example', { file: envExample.rel }));
   }
 
   return results;

@@ -1,28 +1,25 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: "/"
+    directories:
+      - "/packages/cli"
+      - "/apps/landing"
     schedule:
       interval: weekly
       day: monday
       time: "09:00"
       timezone: America/New_York
     open-pull-requests-limit: 10
-    versioning-strategy: increase
     groups:
       dev-dependencies:
         dependency-type: development
-        update-types:
-          - minor
-          - patch
+        update-types: [minor, patch]
       production-dependencies:
         dependency-type: production
-        update-types:
-          - minor
-          - patch
+        update-types: [minor, patch]
 
-  - package-ecosystem: docker
-    directory: "/infra/docker"
+  - package-ecosystem: pip
+    directory: "/packages/vuln-engine"
     schedule:
       interval: weekly
       day: monday
@@ -40,5 +37,4 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions:
-        patterns:
-          - "*"
+        patterns: ["*"]

@@ -1,126 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Header } from '../components/Header';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Footer, Header, NAV_ITEMS } from '../components/Header';
 import { OverviewView } from '../components/OverviewView';
 import { ProgressView } from '../components/ProgressView';
 import { RulesCatalogView } from '../components/RulesCatalogView';
 import { DocsView } from '../components/DocsView';
 import { SearchModal } from '../components/SearchModal';
 import { Toast } from '../components/Toast';
-import { useScanStore } from '../store/scan-store';
-import { getReadinessLabel } from '@shared/scoring';
+
+const TABS = new Set(NAV_ITEMS.filter((i) => !i.route).map((i) => i.id));
+
+/** Shared toast + search state, used by both the dashboard and the docs page. */
+export function useShellState() {
+  const navigate = useNavigate();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setToastMessage(null), 2800);
+  }, []);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return { navigate, isSearchOpen, setIsSearchOpen, toastMessage, setToastMessage, showToast };
+}
 
 export default function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const initialTab = searchParams.get('tab') || 'scan';
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
-
-  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const tabFromUrl = searchParams.get('tab');
-    if (tabFromUrl && tabFromUrl !== activeTab) setActiveTab(tabFromUrl);
-  }, [searchParams]);
+  const requested = searchParams.get('tab') ?? 'scan';
+  const activeTab = TABS.has(requested) ? requested : 'scan';
+  const { navigate, isSearchOpen, setIsSearchOpen, toastMessage, setToastMessage, showToast } = useShellState();
 
   const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    setSearchParams({ tab });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSearchParams(tab === 'scan' ? {} : { tab });
+    window.scrollTo({ top: 0 });
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2800);
-  };
-
-  const handleQuickScan = async () => {
-    handleTabChange('scan');
-    showToast('Starting scan...');
-    const report = await useScanStore.getState().triggerScan();
-    if (report?.status === 'complete') {
-      showToast(`Scan complete: ${report.score.percentage}% readiness (${getReadinessLabel(report.score.percentage).label})`);
-    } else if (report?.status === 'error') {
-      showToast(`Scan failed: ${report.error}`);
-    }
-  };
+  useEffect(() => {
+    const label = NAV_ITEMS.find((i) => i.id === activeTab)?.label;
+    document.title = activeTab === 'scan' ? "Preflight: find what's broken before you ship" : `${label} | Preflight`;
+  }, [activeTab]);
 
   return (
-    <div className="min-h-screen bg-background font-body-md text-body-md text-on-surface flex flex-col justify-between selection:bg-secondary-container selection:text-on-surface">
-      <Header
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onQuickScan={handleQuickScan}
-      />
+    <div className="flex min-h-[100dvh] flex-col bg-background text-on-surface">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-on-primary">
+        Skip to content
+      </a>
+      <Header activeTab={activeTab} onTabChange={handleTabChange} onOpenSearch={() => setIsSearchOpen(true)} />
 
       <SearchModal
         isOpen={isSearchOpen}
         onOpen={() => setIsSearchOpen(true)}
         onClose={() => setIsSearchOpen(false)}
-        onSelectPath={(path) => {
-          if (path === '/docs') navigate('/docs');
-          else handleTabChange(path);
-        }}
+        onSelectPath={(path) => (path === '/docs' ? navigate('/docs') : handleTabChange(path))}
       />
-
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
 
-      <main className="w-full pt-14 bg-background min-h-[calc(100vh-80px)] flex-1">
-        {activeTab === 'scan' && (
-          <OverviewView onNavigateTab={handleTabChange} onShowToast={showToast} />
-        )}
-        {activeTab === 'progress' && (
-          <ProgressView onShowToast={showToast} onNavigateTab={handleTabChange} />
-        )}
-        {activeTab === 'checks' && (
-          <RulesCatalogView onShowToast={showToast} />
-        )}
-        {activeTab === 'learn' && (
-          <DocsView onShowToast={showToast} />
-        )}
+      <main id="main" className="flex-1">
+        {activeTab === 'scan' && <OverviewView onNavigateTab={handleTabChange} onShowToast={showToast} />}
+        {activeTab === 'progress' && <ProgressView onShowToast={showToast} onNavigateTab={handleTabChange} />}
+        {activeTab === 'checks' && <RulesCatalogView onShowToast={showToast} />}
+        {activeTab === 'learn' && <DocsView onShowToast={showToast} />}
       </main>
 
-      <footer className="w-full bg-surface-container-low border-t border-surface-container-high mt-space-xl">
-        <div className="w-full px-gutter-desktop max-w-[1600px] mx-auto py-space-lg flex flex-col sm:flex-row items-center justify-between gap-space-md font-body-sm text-body-sm text-on-surface-variant">
-          <div className="flex items-center gap-space-md">
-            <span>© 2025 Preflight</span>
-          </div>
-          <div className="flex items-center gap-space-lg">
-            <button
-              type="button"
-              onClick={() => navigate('/docs')}
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
-            >
-              Docs
-            </button>
-            <a
-              href="https://github.com/anomalyco/agent-preflight"
-              target="_blank"
-              rel="noreferrer"
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
-            >
-              GitHub
-            </a>
-            <button
-              type="button"
-              onClick={() => showToast('Changes land in the repository changelog')}
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
-            >
-              Changelog
-            </button>
-            <a
-              href="https://github.com/anomalyco/agent-preflight/blob/main/LICENSE"
-              target="_blank"
-              rel="noreferrer"
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
-            >
-              Apache 2.0
-            </a>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

@@ -10,7 +10,8 @@ export type CategoryId =
   | 'observability'
   | 'performance'
   | 'accessibility'
-  | 'compliance';
+  | 'compliance'
+  | 'ui';
 
 export interface CategoryInfo {
   id: CategoryId;
@@ -28,6 +29,7 @@ export const CATEGORIES: CategoryInfo[] = [
   { id: 'performance', label: 'Performance', description: 'Bundle size, tree shaking, lazy loading, CLS, LCP, INP, caching', icon: 'gauge' },
   { id: 'accessibility', label: 'Accessibility', description: 'Keyboard navigation, ARIA, contrast, screen readers, focus management', icon: 'accessibility' },
   { id: 'compliance', label: 'Compliance', description: 'GDPR, SOC2, HIPAA, CCPA, data retention, privacy, export', icon: 'scale' },
+  { id: 'ui', label: 'UI & Content', description: 'Leftover boilerplate, placeholder text, broken links, missing alt text, low contrast, meta tags', icon: 'layout' },
 ];
 
 export interface CheckDefinition {

@@ -1,45 +1,51 @@
 import React, { useState } from 'react';
+import { Icon } from './Icon';
 
 interface DocsViewProps {
   onShowToast: (msg: string) => void;
 }
 
-export const DocsView: React.FC<DocsViewProps> = ({ onShowToast }) => {
-  const [pkgManager, setPkgManager] = useState<'npm' | 'pnpm' | 'yarn' | 'npx'>('npm');
-  const [activeCiTab, setActiveCiTab] = useState<'github' | 'gitlab' | 'bitbucket'>('github');
+const PKG = '@preflight-agent/cli';
 
-  const installCmds = {
-    npm: 'npm i -g agent-preflight',
-    pnpm: 'pnpm add -g agent-preflight',
-    yarn: 'yarn global add agent-preflight',
-    npx: 'npx agent-preflight check'
-  };
+const INSTALL = {
+  npx: `npx ${PKG} scan`,
+  npm: `npm i -g ${PKG}`,
+  pnpm: `pnpm add -g ${PKG}`,
+  yarn: `yarn global add ${PKG}`,
+} as const;
 
-  const copyInstall = () => {
-    navigator.clipboard.writeText(installCmds[pkgManager]);
-    onShowToast(`Copied ${pkgManager} command to clipboard`);
-  };
+const COMMANDS: Array<[string, string]> = [
+  ['preflight scan', 'Run every check on the current project'],
+  ['preflight scan --fail-on high', 'Exit with code 1 if anything high or critical is found'],
+  ['preflight scan --only security,database', 'Run only some categories'],
+  ['preflight scan --format sarif -o preflight.sarif', 'Write SARIF for GitHub Code Scanning (also json, markdown)'],
+  ['preflight scan --offline', 'Skip the dependency CVE lookup'],
+];
 
-  const exampleCliOutput = [
-    '$ preflight check',
-    '',
-    'Loading your project...',
-    '✔ 84 checks passed',
-    '✘ 12 issues found',
-    '△ 6 warnings',
-    '',
-    'Production readiness: 76%',
-    '',
-    'Issues:',
-    '  HIGH   security-secrets-client-exposure    src/config.ts:14',
-    '  HIGH   runtime-error-boundary-missing      src/app/page.tsx:1',
-    '  WARN   performance-image-unoptimized       src/components/Hero.tsx:5',
-    '',
-    'SARIF report written to ./preflight-report.sarif',
-  ].join('\n');
+const EXAMPLE_OUTPUT = `$ preflight scan
 
-  const githubYaml = `name: Preflight AST Check
+  Secrets
+  ❌  HIGH     NEXT_PUBLIC_STRIPE_SECRET_KEY uses a public prefix (src/config.ts:14)
+  ✅  .env is gitignored
+
+  Database & RLS
+  ❌  CRITICAL Table profiles has no RLS (supabase/migrations/001_init.sql)
+
+  Payments
+  ❌  CRITICAL Payment webhook does not verify signatures (app/api/stripe/webhook/route.ts)
+
+Score: 40/100, 18/24 checks passed · 2 critical, 1 high
+Fix 3 critical/high issues before deploying.`;
+
+const CI = {
+  github: {
+    label: 'GitHub Actions',
+    file: '.github/workflows/preflight.yml',
+    code: `name: Preflight
 on: [push, pull_request]
+permissions:
+  contents: read
+  security-events: write
 
 jobs:
   preflight:
@@ -48,181 +54,145 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Run Preflight
-        uses: agent-preflight/action@v1
+          node-version: 22
+      - run: npx -y ${PKG} scan --format sarif -o preflight.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          fail-on: high
-          schema-path: supabase/migrations`;
-
-  const gitlabYaml = `preflight_scan:
-  image: node:20-alpine
+          sarif_file: preflight.sarif
+      - run: npx -y ${PKG} scan --fail-on high`,
+  },
+  gitlab: {
+    label: 'GitLab CI',
+    file: '.gitlab-ci.yml',
+    code: `preflight_scan:
+  image: node:22-alpine
   script:
-    - npx agent-preflight check --fail-on high --sarif-output sarif.json
+    - npx -y ${PKG} scan --format markdown -o preflight.md
+    - npx -y ${PKG} scan --fail-on high
   artifacts:
-    reports:
-      codequality: sarif.json`;
-
-  const bitbucketYaml = `pipelines:
+    when: always
+    paths:
+      - preflight.md`,
+  },
+  bitbucket: {
+    label: 'Bitbucket',
+    file: 'bitbucket-pipelines.yml',
+    code: `pipelines:
   default:
     - step:
-        name: Preflight Security Check
+        name: Preflight
+        image: node:22
         script:
-          - npx agent-preflight check --fail-on high`;
+          - npx -y ${PKG} scan --fail-on high`,
+  },
+} as const;
 
-  const getCiSnippet = () => {
-    if (activeCiTab === 'gitlab') return gitlabYaml;
-    if (activeCiTab === 'bitbucket') return bitbucketYaml;
-    return githubYaml;
+function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void; label: string }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex rounded-lg bg-surface-container-low p-0.5">
+      {options.map(([id, text]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={value === id}
+          onClick={() => onChange(id)}
+          className={`rounded-md px-2.5 py-1 font-label-md transition-colors ${value === id ? 'bg-surface-container-lowest text-on-surface shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CodeBlock({ title, code, onCopy, maxH }: { title?: string; code: string; onCopy: () => void; maxH?: boolean }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-inverse-surface text-inverse-on-surface">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+        <span className="font-code-inline opacity-70">{title ?? 'terminal'}</span>
+        <button type="button" onClick={onCopy} className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-label-sm opacity-80 transition hover:bg-white/10 hover:opacity-100">
+          <Icon name="copy" size={13} /> Copy
+        </button>
+      </div>
+      <pre className={`overflow-x-auto p-4 font-code-inline leading-relaxed ${maxH ? 'max-h-80' : ''}`}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+export const DocsView: React.FC<DocsViewProps> = ({ onShowToast }) => {
+  const [pm, setPm] = useState<keyof typeof INSTALL>('npx');
+  const [ci, setCi] = useState<keyof typeof CI>('github');
+
+  const copy = (text: string, what: string) => {
+    navigator.clipboard.writeText(text);
+    onShowToast(`${what} copied`);
   };
 
   return (
-    <div className="flex flex-col w-full max-w-[1600px] mx-auto px-gutter-desktop py-space-xl gap-space-xl">
-      {/* Header */}
-      <div className="flex flex-col gap-space-xs max-w-3xl">
-        <div className="flex items-center gap-space-sm font-label-md text-label-md text-secondary">
-          <span className="font-label-sm text-label-sm text-primary uppercase tracking-wide">LEARN</span>
-          <span>/</span>
-          <span>Run Preflight your way</span>
-        </div>
-        <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">
-          Run Preflight in your workflow
-        </h1>
-        <p className="font-body-lg text-body-lg text-secondary leading-relaxed">
-          Use the same checks from your terminal or your CI pipeline — so a broken app never ships on your watch.
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-10 px-4 py-8 sm:px-6 md:py-12">
+      <div>
+        <h1 className="font-headline-lg text-on-surface">CLI &amp; CI</h1>
+        <p className="mt-2 max-w-[65ch] font-body-lg text-on-surface-variant">
+          Run the same checks on your machine and block risky pull requests. The CLI sees more than the web scan: git history, lockfiles and dependency CVEs.
         </p>
       </div>
 
-      {/* Package Manager Quick Install */}
-      <div className="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-md border border-surface-container">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
-          <div>
-            <h3 className="font-headline-sm text-headline-sm text-on-surface">Installation</h3>
-            <p className="font-body-sm text-body-sm text-secondary">Install globally or run zero-install via npx in your terminal</p>
-          </div>
-          <div className="flex rounded bg-surface-container p-0.5">
-            {(['npm', 'pnpm', 'yarn', 'npx'] as const).map((pm) => (
-              <button
-                key={pm}
-                type="button"
-                onClick={() => setPkgManager(pm)}
-                className={`px-3 py-1 rounded font-label-md text-label-md transition-colors ${
-                  pkgManager === pm ? 'bg-primary text-on-primary' : 'text-secondary hover:text-on-surface'
-                }`}
-              >
-                {pm}
-              </button>
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-headline-md text-on-surface">Install</h2>
+          <Segmented label="Package manager" value={pm} onChange={setPm} options={Object.keys(INSTALL).map((k) => [k as keyof typeof INSTALL, k])} />
+        </div>
+        <CodeBlock code={`$ ${INSTALL[pm]}`} onCopy={() => copy(INSTALL[pm], 'Install command')} />
+        <p className="font-body-sm text-on-surface-variant">Requires Node.js 18 or later. Your code never leaves your machine; only package names and versions are sent to OSV.dev for the CVE check.</p>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="flex flex-col gap-3">
+          <h2 className="font-headline-md text-on-surface">Common commands</h2>
+          <ul className="overflow-hidden rounded-xl border border-surface-container-high bg-surface-container-lowest">
+            {COMMANDS.map(([cmd, desc]) => (
+              <li key={cmd} className="border-b border-surface-container-high px-4 py-3 last:border-0">
+                <code className="font-code-inline text-on-surface">{cmd}</code>
+                <p className="mt-0.5 font-body-sm text-on-surface-variant">{desc}</p>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
-
-        <div className="p-space-md rounded bg-inverse-surface text-inverse-on-surface flex items-center justify-between font-code-inline text-code-inline shadow-sm">
-          <div className="flex items-center gap-space-sm overflow-x-auto">
-            <span className="text-inverse-on-surface/50 select-none">$</span>
-            <span className="text-inverse-on-surface">{installCmds[pkgManager]}</span>
-          </div>
-          <button
-            type="button"
-            onClick={copyInstall}
-            className="px-space-sm py-1 rounded bg-white/10 hover:bg-white/20 text-inverse-on-surface font-label-sm text-label-sm flex items-center gap-1 transition-colors shrink-0"
-          >
-            <span className="material-symbols-outlined text-[14px]">content_copy</span>
-            <span>Copy</span>
-          </button>
+        <div className="flex flex-col gap-3">
+          <h2 className="font-headline-md text-on-surface">Example output</h2>
+          <CodeBlock code={EXAMPLE_OUTPUT} onCopy={() => copy(EXAMPLE_OUTPUT, 'Output')} />
         </div>
-      </div>
+      </section>
 
-      {/* CLI Common Output Reference */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-space-lg">
-        <div className="lg:col-span-5 p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-md border border-surface-container">
-          <h3 className="font-headline-sm text-headline-sm text-on-surface">CLI Command Reference</h3>
-          <p className="font-body-sm text-body-sm text-secondary">Flags supported by the published CLI:</p>
-          <div className="flex flex-col gap-space-sm">
-            <div className="p-space-sm rounded bg-surface-container-low font-label-md text-label-md text-on-surface">
-              <span>preflight check</span>
-              <span className="block font-body-sm text-body-sm text-secondary">Run all checks on this project; writes results to ./preflight-report.sarif</span>
-            </div>
-            <div className="p-space-sm rounded bg-surface-container-low font-label-md text-label-md text-on-surface">
-              <span>preflight init</span>
-              <span className="block font-body-sm text-body-sm text-secondary">Create a .preflightrc.json so you can tune which checks matter to you</span>
-            </div>
-            <div className="p-space-sm rounded bg-surface-container-low font-label-md text-label-md text-on-surface">
-              <span>preflight check --fail-on high</span>
-              <span className="block font-body-sm text-body-sm text-secondary">Fail (exit code 1) only if a high-severity issue is found</span>
-            </div>
-            <div className="p-space-sm rounded bg-surface-container-low font-label-md text-label-md text-on-surface">
-              <span>preflight check --config .preflightrc.json</span>
-              <span className="block font-body-sm text-body-sm text-secondary">Point to a specific config file instead of the default</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Terminal Log Output */}
-        <div className="lg:col-span-7 rounded-xl bg-inverse-surface text-inverse-on-surface flex flex-col overflow-hidden shadow-sm">
-          <div className="bg-white/10 px-space-md py-3 flex items-center justify-between border-b border-white/10">
-            <div className="flex items-center gap-space-xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-error"></span>
-              <span className="w-2.5 h-2.5 rounded-full bg-outline"></span>
-              <span className="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
-              <span className="font-label-md text-label-md text-inverse-on-surface ml-2">Example CLI Output</span>
-            </div>
-            <span className="font-label-sm text-label-sm text-inverse-on-surface/60">Reference output — exact format may vary by version</span>
-          </div>
-          <pre className="p-space-lg font-code-inline text-code-inline text-inverse-on-surface overflow-x-auto leading-relaxed h-[260px]">
-            <code>{exampleCliOutput}</code>
-          </pre>
-        </div>
-      </div>
-
-      {/* CI/CD Integration Workflow Snippets */}
-      <div className="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-md border border-surface-container">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-headline-sm text-headline-sm text-on-surface">Add Preflight to your CI pipeline</h3>
-            <p className="font-body-sm text-body-sm text-secondary">Stop bad code from merging — Preflight blocks PRs that fail critical checks.</p>
+            <h2 className="font-headline-md text-on-surface">Add it to CI</h2>
+            <p className="mt-1 font-body-sm text-on-surface-variant">Fails the pipeline on high or critical findings, and shows them inline on GitHub pull requests.</p>
           </div>
-          <div className="flex rounded bg-surface-container p-0.5">
-            {(['github', 'gitlab', 'bitbucket'] as const).map((ci) => (
-              <button
-                key={ci}
-                type="button"
-                onClick={() => setActiveCiTab(ci)}
-                className={`px-3 py-1 rounded font-label-md text-label-md transition-colors ${
-                  activeCiTab === ci ? 'bg-primary text-on-primary' : 'text-secondary hover:text-on-surface'
-                }`}
-              >
-                {ci === 'github' ? 'GitHub Actions' : ci === 'gitlab' ? 'GitLab CI' : 'Bitbucket'}
-              </button>
-            ))}
-          </div>
+          <Segmented label="CI provider" value={ci} onChange={setCi} options={(Object.keys(CI) as Array<keyof typeof CI>).map((k) => [k, CI[k].label])} />
         </div>
+        <CodeBlock title={CI[ci].file} code={CI[ci].code} onCopy={() => copy(CI[ci].code, `${CI[ci].label} workflow`)} maxH />
+      </section>
 
-        <div className="rounded-xl bg-inverse-surface text-inverse-on-surface flex flex-col overflow-hidden">
-          <div className="bg-white/10 px-space-md py-3 flex items-center justify-between border-b border-white/10">
-            <span className="font-label-md text-label-md text-inverse-on-surface">
-              {activeCiTab === 'github'
-                ? '.github/workflows/preflight.yml'
-                : activeCiTab === 'gitlab'
-                ? '.gitlab-ci.yml'
-                : 'bitbucket-pipelines.yml'}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(getCiSnippet());
-                onShowToast(`Copied ${activeCiTab.toUpperCase()} workflow file`);
-              }}
-              className="px-space-sm py-1 rounded bg-white/10 hover:bg-white/20 text-inverse-on-surface font-label-sm text-label-sm flex items-center gap-1 transition-colors"
-            >
-              <span className="material-symbols-outlined text-[14px]">content_copy</span>
-              <span>Copy Workflow</span>
-            </button>
-          </div>
-          <pre className="p-space-lg font-code-inline text-code-inline text-inverse-on-surface overflow-x-auto leading-relaxed">
-            <code>{getCiSnippet()}</code>
-          </pre>
-        </div>
-      </div>
+      <section id="github-token" className="flex flex-col gap-3 rounded-xl border border-surface-container-high bg-surface-container-lowest p-5">
+        <h2 className="flex items-center gap-2 font-headline-sm text-on-surface">
+          <Icon name="shield" size={17} /> Higher limits for web scans
+        </h2>
+        <p className="max-w-[70ch] font-body-sm text-on-surface-variant">
+          Anonymous web scans share GitHub's limit of 60 requests an hour per IP. Each scan uses about two, so you rarely hit it. To scan private repos or raise the limit,
+          create a{' '}
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" className="text-on-surface underline underline-offset-2">
+            fine-grained, read-only token
+          </a>{' '}
+          and save it in this browser from the devtools console:
+        </p>
+        <CodeBlock code={`localStorage.setItem('github_token', 'github_pat_...')`} onCopy={() => copy(`localStorage.setItem('github_token', 'github_pat_...')`, 'Snippet')} />
+        <p className="font-body-sm text-secondary">The token stays in your browser and is only sent to api.github.com. Reload the page after saving it.</p>
+      </section>
     </div>
   );
 };

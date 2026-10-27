@@ -1,6 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { Suspense, lazy, useMemo } from 'react';
 import { useScanStore, computeSinceLastScan } from '../store/scan-store';
-import { HistoryLineChart, scoreColor } from './Charts';
+import { scoreTone, TONE_TEXT, useSortedByTime } from './Charts';
+import { Icon, type IconName } from './Icon';
+
+const HistoryChart = lazy(() => import('./HistoryChart'));
 
 interface ProgressViewProps {
   onShowToast: (msg: string) => void;
@@ -8,171 +11,126 @@ interface ProgressViewProps {
 }
 
 export const ProgressView: React.FC<ProgressViewProps> = ({ onShowToast, onNavigateTab }) => {
-  const { history, isScanning, triggerScan } = useScanStore();
+  const { history, isScanning, triggerScan, clearHistory, lastReport } = useScanStore();
   const deltas = useMemo(() => computeSinceLastScan(history), [history]);
+  const sortedHistory = useSortedByTime(history);
+  const lastRepo = lastReport?.repoName ?? history[history.length - 1]?.repoName;
 
   const handleRescan = async () => {
-    const report = await triggerScan();
-    if (report?.status === 'error') {
-      onShowToast(`Scan failed: ${report.error}`);
-    } else if (report?.status === 'complete') {
-      onShowToast(`Scan complete: ${report.score.percentage}% readiness`);
-    }
+    const report = await triggerScan(lastRepo ? `github.com/${lastRepo}` : undefined);
+    if (report?.status === 'complete') onShowToast(`Scan complete: ${report.score.percentage}% ready`);
   };
 
-  const sortedHistory = useMemo(
-    () => [...history].sort((a, b) => a.timestamp - b.timestamp),
-    [history]
-  );
-
   return (
-    <div className="flex flex-col w-full max-w-[1600px] mx-auto px-gutter-desktop py-space-xl space-y-space-xl">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-4 py-8 sm:px-6 md:py-12">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Your progress</h1>
-          <p className="font-body-lg text-body-lg text-on-surface-variant mt-1">
-            How your production readiness changes across scans.
-          </p>
+          <h1 className="font-headline-lg text-on-surface">Progress</h1>
+          <p className="mt-2 font-body-lg text-on-surface-variant">How your readiness score changes from scan to scan.</p>
         </div>
-        <button
-          type="button"
-          onClick={handleRescan}
-          disabled={isScanning}
-          className="px-space-md py-2 rounded-xl bg-primary text-on-primary font-headline-sm text-headline-sm hover:bg-primary/90 transition-colors shadow-sm flex items-center gap-space-xs disabled:opacity-40"
-        >
-          <span className={`material-symbols-outlined text-[16px] ${isScanning ? 'animate-spin' : ''}`}>
-            refresh
-          </span>
-          {isScanning ? 'Scanning...' : 'Rescan'}
-        </button>
+        {history.length > 0 && (
+          <div className="flex gap-2">
+            <button type="button" onClick={handleRescan} disabled={isScanning || !lastRepo} className="btn-primary">
+              <Icon name="refresh" size={15} className={isScanning ? 'animate-spin' : ''} />
+              {isScanning ? 'Scanning' : `Rescan ${lastRepo ?? ''}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearHistory();
+                onShowToast('Scan history cleared');
+              }}
+              className="btn-secondary"
+            >
+              Clear history
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Empty state */}
-      {history.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-surface-container-high bg-surface-container-low p-space-xl text-center space-y-space-md">
-          <span className="material-symbols-outlined text-[48px] text-outline-variant">timeline</span>
-          <div className="space-y-space-sm">
-            <p className="font-headline-sm text-headline-sm text-on-surface">No scan history yet</p>
-            <p className="font-body-sm text-body-sm text-on-surface-variant max-w-md mx-auto">
-              Run your first scan on the <button type="button" onClick={() => onNavigateTab('scan')} className="text-primary underline">Scan</button> tab — this page will show a chart of your readiness score over time.
-            </p>
-          </div>
+      {history.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-surface-container-high px-6 py-14 text-center">
+          <Icon name="chart" size={32} className="text-secondary" />
+          <p className="font-headline-sm text-on-surface">No scans yet</p>
+          <p className="max-w-sm font-body-sm text-on-surface-variant">
+            Scan a repo and this page tracks its score over time, including what you fixed and what's new.
+          </p>
+          <button type="button" onClick={() => onNavigateTab('scan')} className="btn-primary mt-2">
+            Scan a repo
+          </button>
         </div>
-      )}
+      ) : (
+        <>
+          {deltas && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Delta icon="plus-circle" label="New issues" value={`${deltas.newIssues.length}`} tone={deltas.newIssues.length ? 'fail' : 'pass'} sub={deltas.newIssues.length ? 'Introduced since the previous scan' : 'Nothing new'} />
+              <Delta icon="check-circle" label="Fixed" value={`${deltas.fixedIssues.length}`} tone="pass" sub={deltas.fixedIssues.length ? 'Resolved since the previous scan' : 'Nothing fixed yet'} />
+              <Delta
+                icon="trend-up"
+                label="Score change"
+                value={`${deltas.scoreDelta > 0 ? '+' : ''}${deltas.scoreDelta} pts`}
+                tone={deltas.scoreDelta >= 0 ? 'pass' : 'fail'}
+                sub={deltas.previousScore != null ? `${deltas.previousScore}% to ${deltas.previousScore + deltas.scoreDelta}%` : ''}
+              />
+            </div>
+          )}
 
-      {/* Line chart */}
-      {history.length > 0 && (
-        <div className="bg-surface-container-lowest rounded-2xl p-space-lg shadow-sm border border-surface-container-high">
-          <div className="flex items-center justify-between mb-space-md">
-            <h2 className="font-headline-md text-headline-md text-on-surface">Readiness over time</h2>
-            <span className="font-label-sm text-label-sm text-on-surface-variant">{history.length} scans total</span>
-          </div>
-          <HistoryLineChart history={sortedHistory} />
-        </div>
-      )}
+          <section className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-5">
+            <div className="mb-4 flex items-baseline justify-between">
+              <h2 className="font-headline-sm text-on-surface">Readiness over time</h2>
+              <span className="font-label-sm text-secondary">{history.length} scans</span>
+            </div>
+            <Suspense fallback={<div className="skeleton h-64" />}>
+              <HistoryChart history={sortedHistory} />
+            </Suspense>
+          </section>
 
-      {/* Since your last scan deltas */}
-      {deltas && (
-        <div className="bg-surface-container-lowest rounded-2xl p-space-lg shadow-sm border border-surface-container-high space-y-space-md">
-          <h2 className="font-headline-md text-headline-md text-on-surface">Since your last scan</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-space-md">
-            <DeltaCard
-              icon="add_circle"
-              label="New issues"
-              count={deltas.newIssues.length}
-              tone={deltas.newIssues.length > 0 ? 'fail' : 'pass'}
-              sub={deltas.newIssues.length === 0 ? 'Nothing new' : 'Issues introduced since last scan'}
-            />
-            <DeltaCard
-              icon="check_circle"
-              label="Fixed issues"
-              count={deltas.fixedIssues.length}
-              tone="pass"
-              sub={deltas.fixedIssues.length === 0 ? 'Nothing fixed yet' : 'Issues you resolved since last scan'}
-            />
-            <DeltaCard
-              icon="trending_up"
-              label="Score change"
-              count={deltas.scoreDelta}
-              tone={deltas.scoreDelta >= 0 ? 'pass' : 'fail'}
-              isDelta
-              sub={deltas.previousScore != null ? `From ${deltas.previousScore}% → ${deltas.previousScore + deltas.scoreDelta}%` : ''}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Scan history table */}
-      {history.length > 0 && (
-        <div className="bg-surface-container-lowest rounded-2xl p-space-lg shadow-sm border border-surface-container-high space-y-space-md">
-          <h2 className="font-headline-md text-headline-md text-on-surface">Scan history</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left font-body-sm text-body-sm">
-              <thead>
-                <tr className="border-b border-surface-container-high font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">
-                  <th className="py-space-sm px-space-md">Date</th>
-                  <th className="py-space-sm px-space-md">Repository</th>
-                  <th className="py-space-sm px-space-md text-right">Score</th>
-                  <th className="py-space-sm px-space-md text-right">Pass</th>
-                  <th className="py-space-sm px-space-md text-right">Fail</th>
-                  <th className="py-space-sm px-space-md text-right">Warn</th>
-                  <th className="py-space-sm px-space-md text-right">Duration</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-container-high">
-                {[...history].reverse().map((h) => (
-                  <tr key={h.id} className="hover:bg-surface-container-low/60 transition-colors">
-                    <td className="py-space-sm px-space-md font-label-sm text-label-sm text-on-surface-variant whitespace-nowrap">
-                      {new Date(h.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                      {' '}
-                      {new Date(h.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td className="py-space-sm px-space-md text-on-surface font-medium">{h.repoName}</td>
-                    <td className="py-space-sm px-space-md text-right font-headline-sm text-headline-sm" style={{ color: scoreColor(h.score) }}>
-                      {h.score}%
-                    </td>
-                    <td className="py-space-sm px-space-md text-right text-[#16a34a]">{h.passed}</td>
-                    <td className="py-space-sm px-space-md text-right text-error">{h.failed}</td>
-                    <td className="py-space-sm px-space-md text-right text-[#d97706]">{h.warned}</td>
-                    <td className="py-space-sm px-space-md text-right font-label-sm text-label-sm text-on-surface-variant">
-                      {(h.duration / 1000).toFixed(1)}s
-                    </td>
+          <section className="overflow-hidden rounded-xl border border-surface-container-high bg-surface-container-lowest">
+            <h2 className="px-5 pb-2 pt-5 font-headline-sm text-on-surface">History</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-body-sm">
+                <thead>
+                  <tr className="border-b border-surface-container-high font-label-sm text-on-surface-variant">
+                    <th className="px-5 py-2 font-medium">When</th>
+                    <th className="px-5 py-2 font-medium">Repository</th>
+                    <th className="px-5 py-2 text-right font-medium">Score</th>
+                    <th className="px-5 py-2 text-right font-medium">Issues</th>
+                    <th className="px-5 py-2 text-right font-medium">Warnings</th>
+                    <th className="px-5 py-2 text-right font-medium">Time</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                </thead>
+                <tbody>
+                  {[...history].reverse().map((h) => (
+                    <tr key={h.id} className="border-b border-surface-container last:border-0">
+                      <td className="whitespace-nowrap px-5 py-2.5 text-on-surface-variant">
+                        {new Date(h.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-5 py-2.5 font-code-inline text-on-surface">{h.repoName}</td>
+                      <td className={`px-5 py-2.5 text-right font-medium tabular-nums ${TONE_TEXT[scoreTone(h.score)]}`}>{h.score}%</td>
+                      <td className="px-5 py-2.5 text-right tabular-nums text-on-surface">{h.failed}</td>
+                      <td className="px-5 py-2.5 text-right tabular-nums text-on-surface-variant">{h.warned}</td>
+                      <td className="px-5 py-2.5 text-right tabular-nums text-secondary">{(h.duration / 1000).toFixed(1)}s</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
       )}
     </div>
   );
 };
 
-function DeltaCard({
-  icon,
-  label,
-  count,
-  tone,
-  isDelta = false,
-  sub,
-}: {
-  icon: string;
-  label: string;
-  count: number;
-  tone: 'pass' | 'fail';
-  isDelta?: boolean;
-  sub?: string;
-}) {
-  const color = tone === 'pass' ? 'text-[#16a34a]' : 'text-error';
-  const display = isDelta ? (count > 0 ? `+${count}` : `${count}`) : `${count}`;
+function Delta({ icon, label, value, tone, sub }: { icon: IconName; label: string; value: string; tone: 'pass' | 'fail'; sub?: string }) {
   return (
-    <div className="rounded-xl border border-surface-container-high p-space-md space-y-space-sm">
-      <div className="flex items-center gap-space-xs">
-        <span className={`material-symbols-outlined text-[18px] ${color}`}>{icon}</span>
-        <span className="font-label-md text-label-md text-on-surface-variant">{label}</span>
+    <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-4">
+      <div className="flex items-center gap-1.5 font-label-md text-on-surface-variant">
+        <Icon name={icon} size={16} className={TONE_TEXT[tone]} />
+        {label}
       </div>
-      <div className={`font-headline-md text-headline-md ${color}`}>{display}{isDelta ? 'pts' : ''}</div>
-      {sub && <div className="font-body-sm text-body-sm text-on-surface-variant">{sub}</div>}
+      <div className={`mt-2 text-2xl font-semibold tabular-nums ${TONE_TEXT[tone]}`}>{value}</div>
+      {sub && <div className="mt-0.5 font-body-sm text-on-surface-variant">{sub}</div>}
     </div>
   );
 }

@@ -1,4 +1,7 @@
 import type { CheckDefinition } from '../types';
+import { OTHER_DB_CHECKS, UI_CHECKS } from './ui-and-db';
+
+export { OTHER_DB_CHECKS, UI_CHECKS };
 
 export const SECURITY_CHECKS: CheckDefinition[] = [
   {
@@ -33,6 +36,29 @@ export const SECURITY_CHECKS: CheckDefinition[] = [
     whyItMatters: 'Client-side code is fully visible to users. Any API key or secret embedded in it can be extracted and abused, potentially costing thousands in unauthorized API usage.',
     exampleExploit: 'An attacker inspects the network tab or source maps of your web app, finds a Supabase service_role key, and exfiltrates your entire database.',
     suggestedFix: 'Move secrets to server-only environment variables and create API routes that proxy requests server-side.',
+  },
+  {
+    id: 'security-hardcoded-secrets',
+    title: 'No hardcoded credentials',
+    description: 'Real API keys, tokens and private keys must not be committed to source',
+    risk: 'critical',
+    category: 'security',
+    weight: 10,
+    whyItMatters: 'Anything committed to git lives forever in its history. Bots scan public repositories for live keys within minutes of a push.',
+    exampleExploit: 'A scraper finds an sk_live_ Stripe key in a pushed config file and issues refunds to attacker-controlled cards before the owner notices.',
+    suggestedFix: 'Rotate the exposed credential immediately, move it to a server-only environment variable, and purge it from git history.',
+    documentationUrl: 'https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning',
+  },
+  {
+    id: 'security-committed-env-file',
+    title: 'No .env files committed',
+    description: 'Real environment files (.env, .env.local, .env.production) must not be tracked by git',
+    risk: 'critical',
+    category: 'security',
+    weight: 10,
+    whyItMatters: 'A committed .env file publishes every secret it contains to anyone who can read the repository, including its full history.',
+    exampleExploit: 'An attacker clones a public repo, reads DATABASE_URL from the committed .env, and connects straight to the production database.',
+    suggestedFix: 'Run `git rm --cached .env`, add it to .gitignore, and rotate every secret the file contained.',
   },
   {
     id: 'security-auth-middleware',
@@ -365,6 +391,16 @@ export const SECURITY_CHECKS: CheckDefinition[] = [
 ];
 
 export const AI_SAFETY_CHECKS: CheckDefinition[] = [
+  {
+    id: 'ai-not-detected',
+    title: 'LLM usage detection',
+    description: 'AI safety checks only apply to projects that call an LLM provider SDK',
+    risk: 'info',
+    category: 'ai-safety',
+    weight: 1,
+    whyItMatters: 'Scoring AI guardrails on a project that never calls a model would only add noise to the report.',
+    suggestedFix: 'No action needed. If this project does call an LLM, make sure the SDK is listed in package.json.',
+  },
   {
     id: 'ai-prompt-injection',
     title: 'Prompt injection prevention',
@@ -1130,6 +1166,7 @@ export const COMPLIANCE_CHECKS: CheckDefinition[] = [
 
 export const ALL_CHECKS: CheckDefinition[] = [
   ...SECURITY_CHECKS,
+  ...OTHER_DB_CHECKS,
   ...AI_SAFETY_CHECKS,
   ...RUNTIME_CHECKS,
   ...INFRASTRUCTURE_CHECKS,
@@ -1137,10 +1174,11 @@ export const ALL_CHECKS: CheckDefinition[] = [
   ...PERFORMANCE_CHECKS,
   ...ACCESSIBILITY_CHECKS,
   ...COMPLIANCE_CHECKS,
+  ...UI_CHECKS,
 ];
 
 export const CHECKS_BY_CATEGORY: Record<string, CheckDefinition[]> = {
-  'security': SECURITY_CHECKS,
+  'security': [...SECURITY_CHECKS, ...OTHER_DB_CHECKS],
   'ai-safety': AI_SAFETY_CHECKS,
   'runtime': RUNTIME_CHECKS,
   'infrastructure': INFRASTRUCTURE_CHECKS,
@@ -1148,6 +1186,7 @@ export const CHECKS_BY_CATEGORY: Record<string, CheckDefinition[]> = {
   'performance': PERFORMANCE_CHECKS,
   'accessibility': ACCESSIBILITY_CHECKS,
   'compliance': COMPLIANCE_CHECKS,
+  'ui': UI_CHECKS,
 };
 
 export function getCheckById(id: string): CheckDefinition | undefined {

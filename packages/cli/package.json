@@ -1,27 +1,61 @@
 {
   "name": "@preflight-agent/cli",
-  "version": "0.1.2",
-  "description": "Pre-deploy checklist CLI for vibe coders",
-  "main": "dist/index.js",
+  "version": "0.2.0",
+  "description": "Pre-deploy security checklist CLI for vibe coders — secrets, RLS, auth, injection, dependency CVEs",
+  "keywords": [
+    "security",
+    "scanner",
+    "sast",
+    "supabase",
+    "rls",
+    "secrets",
+    "nextjs",
+    "pre-deploy",
+    "sarif"
+  ],
+  "homepage": "https://github.com/anomalyco/agent-preflight/tree/main/packages/cli#readme",
+  "bugs": {
+    "url": "https://github.com/anomalyco/agent-preflight/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/agent-preflight.git",
+    "directory": "packages/cli"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/scan.js",
+  "types": "dist/scan.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/scan.d.ts",
+      "default": "./dist/scan.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "preflight": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/index.ts",
-    "prepublishOnly": "npm run build"
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
-    "dotenv": "^16.4.0",
-    "glob": "^10.3.0",
     "ora": "^8.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.4.0",
-    "ts-node": "^10.9.0"
-  },
-  "license": "MIT"
+    "typescript": "^5.4.0"
+  }
 }

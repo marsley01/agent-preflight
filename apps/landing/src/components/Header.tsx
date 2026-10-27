@@ -1,118 +1,144 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Icon, type IconName } from './Icon';
+import { setThemePref, useThemePref, type ThemePref } from '../lib/theme';
 
 interface HeaderProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onOpenSearch: () => void;
-  onQuickScan: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
-  activeTab,
-  onTabChange,
-  onOpenSearch,
-  onQuickScan,
-}) => {
-  const navigate = useNavigate();
+export const NAV_ITEMS: Array<{ id: string; label: string; icon: IconName; route?: string }> = [
+  { id: 'scan', label: 'Scan', icon: 'search' },
+  { id: 'progress', label: 'Progress', icon: 'chart' },
+  { id: 'checks', label: 'Checks', icon: 'list-checks' },
+  { id: 'learn', label: 'CLI & CI', icon: 'terminal' },
+  { id: 'docs', label: 'Docs', icon: 'books', route: '/docs' },
+];
 
-  const navItems: Array<{ id: string; label: string; icon: string; route?: string }> = [
-    { id: 'scan', label: 'Scan', icon: 'search' },
-    { id: 'progress', label: 'Progress', icon: 'timeline' },
-    { id: 'checks', label: 'Checks', icon: 'checklist' },
-    { id: 'learn', label: 'Learn', icon: 'menu_book' },
-    { id: 'docs', label: 'Docs', icon: 'auto_stories', route: '/docs' },
-  ];
+export const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
+
+const THEME_ORDER: ThemePref[] = ['system', 'light', 'dark'];
+const THEME_ICON: Record<ThemePref, IconName> = { system: 'monitor', light: 'sun', dark: 'moon' };
+
+export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, onOpenSearch }) => {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const theme = useThemePref();
+  const nextTheme = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+
+  const isActive = (item: (typeof NAV_ITEMS)[number]) =>
+    item.route ? pathname === item.route : pathname === '/' && activeTab === item.id;
+
+  const go = (item: (typeof NAV_ITEMS)[number]) => {
+    if (item.route) navigate(item.route);
+    else onTabChange(item.id);
+  };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-surface-container-high/50">
-      <div className="h-14 w-full px-gutter-desktop max-w-[1600px] mx-auto flex items-center justify-between gap-space-md">
-        {/* Brand & Nav */}
-        <div className="flex items-center gap-space-lg">
-          <div
-            className="flex items-center gap-space-sm cursor-pointer"
-            onClick={() => onTabChange('scan')}
+    <header className="sticky top-0 z-40 border-b border-surface-container-high bg-background/85 backdrop-blur-md">
+      <div className="mx-auto flex h-14 w-full max-w-[1280px] items-center gap-space-md px-4 sm:px-6">
+        <button
+          type="button"
+          onClick={() => (pathname === '/' ? onTabChange('scan') : navigate('/'))}
+          className="flex items-center gap-2 rounded-lg pr-1"
+          aria-label="Preflight home"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-on-primary">
+            <Icon name="arrow-up-right" size={15} weight="bold" />
+          </span>
+          <span className="font-headline-sm text-on-surface">Preflight</span>
+        </button>
+
+        <nav aria-label="Main" className="ml-space-md hidden items-center gap-1 md:flex">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => go(item)}
+              aria-current={isActive(item) ? 'page' : undefined}
+              className={`rounded-lg px-3 py-1.5 font-label-md transition-colors ${
+                isActive(item)
+                  ? 'bg-surface-container text-on-surface'
+                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="flex h-9 items-center gap-2 rounded-lg border border-surface-container-high bg-surface-container-lowest px-2.5 font-label-md text-on-surface-variant transition-colors hover:text-on-surface sm:w-52"
           >
-            <div className="w-6 h-6 rounded-lg bg-primary flex items-center justify-center">
-              <svg
-                className="w-3.5 h-3.5 text-on-primary"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.75"
-                viewBox="0 0 16 16"
-              >
-                <path d="M2 13L14 3M14 3H7M14 3V10"></path>
-              </svg>
-            </div>
-            <span className="font-headline-sm text-headline-sm text-on-surface tracking-tight">
-              Preflight
-            </span>
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-space-xs">
-            {navItems.map((item) => {
-              const isRoute = !!item.route;
-              const isActive = isRoute
-                ? window.location.pathname === item.route
-                : activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    if (isRoute && item.route) navigate(item.route);
-                    else onTabChange(item.id);
-                  }}
-                  className={`flex items-center gap-space-xs px-space-sm py-1.5 rounded-lg text-sm transition-colors ${
-                    isActive
-                      ? 'bg-primary-container text-on-primary-container font-medium'
-                      : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Right Controls */}
-        <div className="flex items-center gap-space-sm">
+            <Icon name="search" size={15} />
+            <span className="hidden sm:inline">Search checks</span>
+            <kbd className="ml-auto hidden rounded border border-surface-container-high px-1.5 text-[11px] text-secondary sm:inline">
+              {MOD_KEY} K
+            </kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => setThemePref(nextTheme)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
+            aria-label={`Theme: ${theme}. Switch to ${nextTheme}`}
+            title={`Theme: ${theme}`}
+          >
+            <Icon name={THEME_ICON[theme]} size={17} />
+          </button>
           <a
             href="https://github.com/anomalyco/agent-preflight"
             target="_blank"
             rel="noreferrer"
-            className="hidden sm:flex items-center gap-space-xs px-space-sm py-1.5 rounded-lg text-sm text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
+            aria-label="Preflight on GitHub"
           >
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-            GitHub
+            <Icon name="github" size={18} />
           </a>
-
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className="flex items-center gap-space-xs px-space-sm py-1.5 rounded-lg text-sm text-on-surface-variant bg-surface-container-low hover:bg-surface-container transition-colors"
-          >
-            <span className="material-symbols-outlined text-[16px]">search</span>
-            <span className="hidden sm:inline">Search</span>
-            <kbd className="hidden sm:inline px-1.5 py-0.5 rounded bg-surface-container-lowest text-xs text-on-surface-variant shadow-sm border border-surface-container-high">
-              ⌘K
-            </kbd>
-          </button>
-
-          <button
-            type="button"
-            onClick={onQuickScan}
-            className="flex items-center gap-space-xs px-space-md py-1.5 rounded-lg bg-primary text-on-primary font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <span className="material-symbols-outlined text-[16px]">bolt</span>
-            Scan
-          </button>
         </div>
       </div>
+
+      {/* Mobile: tabs move to a scrollable row under the bar */}
+      <nav aria-label="Main" className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden [scrollbar-width:none]">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => go(item)}
+            aria-current={isActive(item) ? 'page' : undefined}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 font-label-md transition-colors ${
+              isActive(item) ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'
+            }`}
+          >
+            <Icon name={item.icon} size={14} />
+            {item.label}
+          </button>
+        ))}
+      </nav>
     </header>
   );
 };
+
+export const Footer: React.FC = () => (
+  <footer className="mt-16 border-t border-surface-container-high">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3 px-4 py-6 font-body-sm text-on-surface-variant sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <span>Preflight is open source under the MIT license.</span>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        {[
+          ['GitHub', 'https://github.com/anomalyco/agent-preflight'],
+          ['Changelog', 'https://github.com/anomalyco/agent-preflight/blob/main/CHANGELOG.md'],
+          ['Security', 'https://github.com/anomalyco/agent-preflight/blob/main/SECURITY.md'],
+          ['npm', 'https://www.npmjs.com/package/@preflight-agent/cli'],
+        ].map(([label, href]) => (
+          <a key={label} href={href} target="_blank" rel="noreferrer" className="transition-colors hover:text-on-surface">
+            {label}
+          </a>
+        ))}
+      </div>
+    </div>
+  </footer>
+);

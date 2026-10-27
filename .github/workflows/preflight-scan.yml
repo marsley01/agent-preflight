@@ -1,93 +1,75 @@
 name: Preflight Scan
 
+# Dogfooding: scan this repo with the CLI built from source.
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write   # PR comment
+      security-events: write # SARIF upload to Code Scanning
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/cli/package-lock.json
+
+      - name: Build CLI
+        working-directory: packages/cli
+        run: npm ci && npm run build
 
       - name: Run preflight scan
-        id: scan
         run: |
-          cd packages/cli
-          npm install
-          npm run build
-          node dist/index.js scan ../.. --json > ../../scan-results.json 2>&1
-          cd ../..
-          echo "results<<EOF" >> $GITHUB_OUTPUT
-          cat scan-results.json >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          node packages/cli/dist/index.js scan . --format markdown --output preflight.md
+          node packages/cli/dist/index.js scan . --format sarif --output preflight.sarif --offline
+          cat preflight.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Post scan results
+      - name: Upload SARIF to Code Scanning
+        if: always() && hashFiles('preflight.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: preflight.sarif
+          category: agent-preflight
+
+      - name: Comment on PR
+        # Fork PRs get a read-only token; the job summary above still has the report.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const results = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
-
-            let body = '## 🛫 Preflight Scan Results\n\n';
-            let total = 0;
-            let passed = 0;
-            let failed = 0;
-
-            for (const cat of results) {
-              body += `### ${cat.name}\n`;
-              for (const check of cat.checks) {
-                total++;
-                const icon = check.status === 'pass' ? '✅' : check.status === 'fail' ? '❌' : '⚠️';
-                if (check.status === 'pass') passed++;
-                if (check.status === 'fail') failed++;
-                body += `- ${icon} ${check.message}`;
-                if (check.file) body += ` (\`${check.file}${check.line ? ':' + check.line : ''}\`)`;
-                body += '\n';
-              }
-              body += '\n';
-            }
-
-            body += `**Score: ${passed}/${total}**`;
-            if (failed > 0) {
-              body += ` — ${failed} critical issue${failed > 1 ? 's' : ''} to fix.`;
-            } else {
-              body += ' — All clear.';
-            }
-
-            const comments = await github.rest.issues.listComments({
+            const body = fs.readFileSync('preflight.md', 'utf8');
+            const marker = '## 🛫 Preflight Scan Results';
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              per_page: 100,
             });
-
-            const existing = comments.data.find(c =>
-              c.user.type === 'Bot' && c.body?.startsWith('## 🛫 Preflight Scan Results')
-            );
-
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body?.startsWith(marker));
             if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
             }
+
+      - name: Fail on high-severity findings
+        run: node packages/cli/dist/index.js scan . --fail-on high --format markdown > /dev/null

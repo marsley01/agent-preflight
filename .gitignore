@@ -74,3 +74,14 @@ yarn.lock
 pnpm-lock.yaml
 
 .vercel
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Coverage & scan output
+coverage/
+preflight.md
+preflight.sarif

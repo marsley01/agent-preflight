@@ -78,6 +78,8 @@ interface ScanState {
   repoUrl: string;
   isScanning: boolean;
   scanProgress: string;
+  /** 0-based stage index and total, for the progress stepper */
+  scanStage: { index: number; total: number } | null;
   scanError: string | null;
   lastReport: ScanReport | null;
   lastScanTime: number | null;
@@ -95,10 +97,13 @@ interface ScanState {
   clearHistory: () => void;
 }
 
-function normalizeRepoUrl(input: string): string {
-  const trimmed = input.trim();
+/** Accepts `owner/repo`, `github.com/owner/repo` or a full URL. */
+export function normalizeRepoUrl(input: string): string {
+  const trimmed = input.trim().replace(/\/+$/, '');
   if (!trimmed) return trimmed;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^(www\.)?github\.com\//i.test(trimmed)) return `https://${trimmed}`;
+  if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) return `https://github.com/${trimmed}`;
   return `https://${trimmed}`;
 }
 
@@ -108,7 +113,7 @@ function reportToDetections(report: ScanReport): DetectionItem[] {
     for (const check of category.checks) {
       if (check.status === 'fail' || check.status === 'warn') {
         const action = check.suggestedFix
-          ? `${check.message} — ${check.suggestedFix}`
+          ? `${check.message}. ${check.suggestedFix}`
           : check.message;
         items.push({
           id: `${category.categoryId}-${check.checkId}-${items.length}`,
@@ -150,9 +155,11 @@ function reportToHistoryEntry(report: ScanReport): ScanHistoryEntry {
   };
 }
 
+/**
+ * The user's own token, pasted into localStorage. Never read it from a VITE_ env var:
+ * Vite inlines those into the public bundle, handing the token to every visitor.
+ */
 function getGitHubToken(): string | undefined {
-  const fromEnv = (import.meta.env as Record<string, string | undefined>).VITE_GITHUB_TOKEN;
-  if (fromEnv) return fromEnv;
   try {
     return localStorage.getItem('github_token') || undefined;
   } catch {
@@ -161,9 +168,10 @@ function getGitHubToken(): string | undefined {
 }
 
 export const useScanStore = create<ScanState>((set, get) => ({
-  repoUrl: 'github.com/vercel/next.js',
+  repoUrl: '',
   isScanning: false,
   scanProgress: '',
+  scanStage: null,
   scanError: null,
   lastReport: null,
   lastScanTime: null,
@@ -185,7 +193,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       return null;
     }
 
-    set({ isScanning: true, scanError: null, scanProgress: 'Starting your scan...' });
+    set({ isScanning: true, scanError: null, scanProgress: 'Starting your scan', scanStage: { index: 0, total: 8 } });
 
     const token = getGitHubToken();
 
@@ -194,7 +202,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       undefined,
       (progress) => {
         const label = SCAN_STAGE_LABELS[progress.stage] || 'Scanning';
-        set({ scanProgress: `${label}...` });
+        set({ scanProgress: label, scanStage: { index: progress.stageIndex, total: progress.totalStages } });
       },
       token
     );
@@ -203,6 +211,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       set({
         isScanning: false,
         scanProgress: '',
+        scanStage: null,
         scanError: report.error || 'Scan failed',
         lastScanTime: report.duration
       });
@@ -216,6 +225,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
     set(() => ({
       isScanning: false,
       scanProgress: '',
+      scanStage: null,
       scanError: null,
       lastReport: report,
       lastScanTime: report.duration,

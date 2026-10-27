@@ -1,160 +1,205 @@
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import ora from 'ora';
-import { runSecurityChecks } from './checks/security';
-import { runAuthChecks } from './checks/auth';
-import { runPaymentChecks } from './checks/payments';
-import { runDatabaseChecks } from './checks/database';
-import { runApiChecks } from './checks/api';
-import { runWebChecks } from './checks/web';
-import { runGraphqlChecks } from './checks/graphql';
-import { runRealtimeChecks } from './checks/realtime';
-import { runVulnerabilityChecks } from './checks/vulnerabilities';
-import { renderReport } from './reporter';
+import { ProjectContext } from './context.js';
+import { CATEGORIES } from './checks/index.js';
+import { renderReport, renderMarkdown, renderSarif } from './reporter.js';
+import { type CategoryResult, type CheckResult, type Severity, SEVERITY_ORDER } from './types.js';
 
-/**
- * Result of a single check within a category.
- */
-export interface CheckResult {
-  /** Whether the check passed, failed, or is a warning */
-  status: 'pass' | 'fail' | 'warn';
-  /** Human-readable description of the result */
-  message: string;
-  /** File path relative to the scanned directory (if applicable) */
-  file?: string;
-  /** Line number within the file (if applicable) */
-  line?: number;
-}
+export * from './types.js';
+export { ProjectContext } from './context.js';
+export { CATEGORIES } from './checks/index.js';
 
-/**
- * A named category containing a set of check results.
- */
-export interface CategoryResult {
-  /** Display name for the category (e.g. "Security", "Database") */
-  name: string;
-  /** Individual check results within this category */
-  checks: CheckResult[];
-}
+export type OutputFormat = 'pretty' | 'json' | 'markdown' | 'sarif';
 
-/**
- * CLI options accepted by the scan command.
- */
+/** CLI options accepted by the scan command. */
 export interface ScanOptions {
-  /** Output results as JSON instead of a terminal report */
+  /** Shorthand for `--format json` */
   json?: boolean;
-  /** Exit with code 1 if any checks fail */
+  format?: OutputFormat;
+  /** Write the report to a file instead of stdout */
+  output?: string;
+  /** Exit with code 1 if any check fails */
   strict?: boolean;
-  /** Run only a single category by name */
+  /** Exit with code 1 if any finding is at or above this severity */
+  failOn?: Severity;
+  /** Comma-separated category ids to run */
   only?: string;
+  /** Skip network lookups (dependency advisories) */
+  offline?: boolean;
+  /** Show passing checks in the terminal report */
+  verbose?: boolean;
+}
+
+export interface ScanSummary {
+  /** 0–100, deducted per distinct failing rule by severity */
+  score: number;
+  passed: number;
+  failed: number;
+  warned: number;
+  total: number;
+  bySeverity: Record<Severity, number>;
+}
+
+export interface ScanReport {
+  tool: { name: string; version: string };
+  root: string;
+  durationMs: number;
+  summary: ScanSummary;
+  categories: CategoryResult[];
+}
+
+const PENALTY: Record<Severity, number> = { critical: 25, high: 10, medium: 4, low: 1, info: 0 };
+
+export function toolVersion(): string {
+  try {
+    const pkgPath = new URL('../package.json', import.meta.url);
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+export function summarize(categories: CategoryResult[]): ScanSummary {
+  const all = categories.flatMap((c) => c.checks).filter((c) => c.status !== 'info');
+  const findings = all.filter((c) => c.status === 'fail' || c.status === 'warn');
+  const bySeverity: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  findings.forEach((f) => bySeverity[f.severity]++);
+
+  // Penalize each rule once at its worst severity so one noisy rule can't zero the score.
+  const worst = new Map<string, number>();
+  for (const f of findings) {
+    const p = PENALTY[f.severity] * (f.status === 'warn' ? 0.5 : 1);
+    worst.set(f.id, Math.max(worst.get(f.id) ?? 0, p));
+  }
+  const penalty = [...worst.values()].reduce((a, b) => a + b, 0);
+
+  return {
+    score: Math.max(0, Math.round(100 - penalty)),
+    passed: all.filter((c) => c.status === 'pass').length,
+    failed: all.filter((c) => c.status === 'fail').length,
+    warned: all.filter((c) => c.status === 'warn').length,
+    total: all.length,
+    bySeverity,
+  };
+}
+
+/** Findings at or above `threshold` severity. */
+export function findingsAtOrAbove(report: ScanReport, threshold: Severity): CheckResult[] {
+  const min = SEVERITY_ORDER.indexOf(threshold);
+  return report.categories
+    .flatMap((c) => c.checks)
+    .filter((c) => (c.status === 'fail' || c.status === 'warn') && SEVERITY_ORDER.indexOf(c.severity) >= min);
 }
 
 /**
- * Run all applicable security checks against a project directory.
- * Iterates through all 9 check categories, filters by `--only` if set,
- * and either prints a terminal report or writes JSON to stdout.
+ * Programmatic API: scan a directory and return the report without printing anything.
+ */
+export async function scan(
+  dir: string,
+  options: Pick<ScanOptions, 'only' | 'offline'> = {},
+  onCategory?: (name: string) => void,
+): Promise<ScanReport> {
+  const started = Date.now();
+  const root = path.resolve(dir);
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    throw new Error(`Not a directory: ${root}`);
+  }
+
+  const only = options.only?.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const unknown = only?.filter((id) => !CATEGORIES.some((c) => c.id === id));
+  if (unknown?.length) {
+    throw new Error(`Unknown category: ${unknown.join(', ')}. Valid: ${CATEGORIES.map((c) => c.id).join(', ')}`);
+  }
+
+  const ctx = ProjectContext.load(root);
+  const categories: CategoryResult[] = [];
+  for (const cat of CATEGORIES) {
+    if (only && !only.includes(cat.id)) continue;
+    onCategory?.(cat.name);
+    const checks = await cat.run(ctx, { offline: options.offline });
+    categories.push({ id: cat.id, name: cat.name, checks });
+  }
+
+  return {
+    tool: { name: 'agent-preflight', version: toolVersion() },
+    root,
+    durationMs: Date.now() - started,
+    summary: summarize(categories),
+    categories,
+  };
+}
+
+/** Category names as 0.1.x printed them, for categories that were renamed since. */
+const LEGACY_CATEGORY_NAMES: Record<string, string> = {
+  security: 'Security',
+  database: 'Database',
+  vulnerabilities: 'Vulnerabilities',
+};
+
+export interface LegacyCategory {
+  name: string;
+  checks: Array<Omit<CheckResult, 'status'> & { status: 'pass' | 'fail' | 'warn' }>;
+}
+
+/**
+ * The `--json` shape from 0.1.x: a bare array of `{ name, checks: [{ status, message, file?, line? }] }`
+ * where status is only ever pass/fail/warn. New fields (id, severity, fix, snippet) are added, never
+ * renamed, and "not applicable" results map to `warn` exactly as 0.1.x reported skipped categories.
+ */
+export function toLegacyJson(report: ScanReport): LegacyCategory[] {
+  return report.categories.map((c) => ({
+    name: LEGACY_CATEGORY_NAMES[c.id] ?? c.name,
+    checks: c.checks.map(({ status, message, file, line, ...rest }) => ({
+      status: status === 'info' ? 'warn' : status,
+      message,
+      ...(file !== undefined ? { file } : {}),
+      ...(line !== undefined ? { line } : {}),
+      ...rest,
+    })),
+  }));
+}
+
+/**
+ * CLI entry: run the scan, print or write the report, and set the exit code.
  *
- * When `--strict` is set, the process exits with code 1 if any check fails.
+ * Exit codes: 0 = ok, 1 = findings exceeded `--strict` / `--fail-on`, 2 = scan error.
  */
 export async function runScan(dir: string, options: ScanOptions) {
-  const absoluteDir = path.resolve(process.cwd(), dir);
+  // `--json` keeps the 0.1.x output shape so existing CI scripts don't break; `--format json` is the full report.
+  const format: OutputFormat | 'legacy-json' = options.json ? 'legacy-json' : options.format ?? 'pretty';
+  const interactive = format === 'pretty' && !options.output && process.stderr.isTTY;
+  const spinner = ora({ text: `Scanning ${path.resolve(dir)}`, isSilent: !interactive, stream: process.stderr }).start();
 
-  const spinner = ora(`Scanning: ${absoluteDir}`).start();
-
+  let report: ScanReport;
   try {
-    const categories: CategoryResult[] = [];
-
-    const shouldRun = (name: string) =>
-      !options.only || options.only.toLowerCase() === name;
-
-    if (shouldRun('security')) {
-      spinner.text = 'Checking security...';
-      categories.push({
-        name: 'Security',
-        checks: await runSecurityChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('auth')) {
-      spinner.text = 'Checking authentication...';
-      categories.push({
-        name: 'Authentication',
-        checks: await runAuthChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('payments')) {
-      spinner.text = 'Checking payments...';
-      categories.push({
-        name: 'Payments',
-        checks: await runPaymentChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('database')) {
-      spinner.text = 'Checking database...';
-      categories.push({
-        name: 'Database',
-        checks: await runDatabaseChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('api')) {
-      spinner.text = 'Checking API & Validation...';
-      categories.push({
-        name: 'API & Validation',
-        checks: await runApiChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('web')) {
-      spinner.text = 'Checking web security...';
-      categories.push({
-        name: 'Web Security',
-        checks: await runWebChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('graphql')) {
-      spinner.text = 'Checking GraphQL...';
-      categories.push({
-        name: 'GraphQL',
-        checks: await runGraphqlChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('realtime')) {
-      spinner.text = 'Checking real-time connections...';
-      categories.push({
-        name: 'Real-Time',
-        checks: await runRealtimeChecks(absoluteDir),
-      });
-    }
-
-    if (shouldRun('vulnerabilities')) {
-      spinner.text = 'Checking for web vulnerabilities...';
-      categories.push({
-        name: 'Vulnerabilities',
-        checks: await runVulnerabilityChecks(absoluteDir),
-      });
-    }
-
+    report = await scan(dir, options, (name) => { spinner.text = `Checking ${name}...`; });
     spinner.stop();
-
-    if (options.json) {
-      console.log(JSON.stringify(categories, null, 2));
-    } else {
-      renderReport(absoluteDir, categories);
-    }
-
-    const hasFail = categories
-      .flatMap((c) => c.checks)
-      .some((c) => c.status === 'fail');
-
-    if (options.strict && hasFail) {
-      process.exit(1);
-    }
-  } catch (err) {
+  } catch (err: any) {
     spinner.fail('Scan failed');
-    console.error(err);
-    process.exit(1);
+    console.error(err?.message ?? err);
+    process.exitCode = 2;
+    return;
   }
+
+  let out: string;
+  if (format === 'legacy-json') out = JSON.stringify(toLegacyJson(report), null, 2);
+  else if (format === 'json') out = JSON.stringify(report, null, 2);
+  else if (format === 'sarif') out = JSON.stringify(renderSarif(report), null, 2);
+  else if (format === 'markdown') out = renderMarkdown(report);
+  else out = renderReport(report, { verbose: options.verbose });
+
+  if (options.output) {
+    fs.writeFileSync(options.output, out);
+    console.error(`Report written to ${options.output} (score ${report.summary.score}/100)`);
+  } else {
+    process.stdout.write(out.endsWith('\n') ? out : `${out}\n`);
+  }
+
+  const blocking = options.failOn
+    ? findingsAtOrAbove(report, options.failOn)
+    : options.strict
+      ? report.categories.flatMap((c) => c.checks).filter((c) => c.status === 'fail')
+      : [];
+  if (blocking.length > 0) process.exitCode = 1;
 }

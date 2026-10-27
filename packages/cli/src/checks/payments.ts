@@ -1,98 +1,57 @@
-import fs from 'fs';
-import path from 'path';
-import { glob } from 'glob';
-import type { CheckResult } from '../scan';
+import type { ProjectContext } from '../context.js';
+import { type CheckResult, pass, fail, warn, info } from '../types.js';
+
+const PAYMENT_DEPS = ['stripe', '@stripe/stripe-js', '@paypal/checkout-server-sdk', '@lemonsqueezy/lemonsqueezy.js', 'paystack', 'flutterwave-node-v3', 'mpesa-node', 'razorpay', '@polar-sh/sdk', 'square'];
+const PAYMENT_CONTENT = /stripe|mpesa|daraja|stkpush|paystack|flutterwave|lemonsqueezy|paypal|razorpay|polar/i;
+const SIGNATURE = /constructEvent|webhooks\.(construct|verify)|validateWebhook|verifySignature|verifyWebhook|timingSafeEqual|createHmac|X-Mpesa-Signature|x-paystack-signature|verif(y|ied)_?signature|standardwebhooks|svix/i;
+const IDEMPOTENCY = /idempotencyKey|idempotency_key|Idempotency-Key|TransactionID|CheckoutRequestID|MpesaReceiptNumber|event\.id|processed_events|ON CONFLICT|upsert/i;
+const CLIENT_AMOUNT = /amount\s*:\s*(body|req\.body|data|input|formData)\.\w*amount|unit_amount\s*:\s*(body|req\.body|data|input)\./i;
 
 /**
  * Check for payment handling issues:
- * - Webhook signature validation (Stripe, M-Pesa)
- * - Error handling (try/catch) in payment routes
- * - Idempotency keys to prevent duplicate charges
+ * - Webhook signature validation (Stripe, M-Pesa Daraja, Paystack, ...)
+ * - Idempotent webhook processing (no double-credit on retries)
+ * - Prices taken from the client request
  */
-export async function runPaymentChecks(dir: string): Promise<CheckResult[]> {
+export function runPaymentChecks(ctx: ProjectContext): CheckResult[] {
   const results: CheckResult[] = [];
-
-  const webhookFiles = await glob(
-    `${dir}/**/{webhook,webhooks,mpesa,stripe,payment}/**/*.{ts,tsx,js}`,
-    { ignore: ['**/node_modules/**', '**/.next/**'] }
-  );
-
-  const apiFiles = await glob(`${dir}/src/app/api/**/*.ts`, { ignore: ['**/node_modules/**'] });
-  const allFiles = [...new Set([...webhookFiles, ...apiFiles])];
-  const paymentRelatedFiles = allFiles.filter(f =>
-    /webhook|stripe|mpesa|payment|daraja|stk/i.test(f)
-  );
-
-  if (paymentRelatedFiles.length === 0) {
-    results.push({ status: 'warn', message: 'No payment-related files detected \u2014 skipping payment checks' });
-    return results;
+  const usesPayments = ctx.hasDependency(...PAYMENT_DEPS) || ctx.code.some((f) => PAYMENT_CONTENT.test(f.rel));
+  if (!usesPayments) {
+    return [info('payments/not-applicable', 'No payment integration detected — skipping payment checks')];
   }
 
-  let hasSignatureValidation = false;
-  let signatureFile: string | undefined;
+  const webhooks = ctx.code.filter((f) => /webhook|callback|ipn|notify/i.test(f.rel) && PAYMENT_CONTENT.test(f.rel + f.content));
+  if (webhooks.length === 0) {
+    results.push(warn('payments/no-webhook', 'medium', 'Payments used but no webhook handler found — relying on client redirects to confirm payment is spoofable', {
+      fix: 'Confirm payments server-side from the provider webhook, never from the success-page redirect.',
+    }));
+  }
 
-  for (const file of paymentRelatedFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (
-      content.includes('constructEvent') ||
-      content.includes('stripe.webhooks') ||
-      content.includes('X-Mpesa-Signature') ||
-      content.includes('validateWebhook') ||
-      content.includes('verifySignature') ||
-      content.includes('crypto.timingSafeEqual') ||
-      content.includes('hmac')
-    ) {
-      hasSignatureValidation = true;
-      signatureFile = path.relative(dir, file);
-      break;
+  for (const f of webhooks) {
+    if (SIGNATURE.test(f.content)) {
+      results.push(pass('payments/webhook-signature', 'Webhook signature verified', { file: f.rel }));
+    } else {
+      results.push(fail('payments/webhook-signature', 'critical', 'Payment webhook does not verify signatures — anyone can POST a fake "payment succeeded" event', {
+        file: f.rel,
+        fix: /mpesa|daraja/i.test(f.rel + f.content)
+          ? 'M-Pesa callbacks are unsigned: put a secret token in the CallBackURL path, allowlist Safaricom IPs, and re-query the transaction status API before crediting.'
+          : 'Use stripe.webhooks.constructEvent(rawBody, sig, secret) (or your provider\'s verify helper) on the raw request body.',
+      }));
+    }
+    if (!IDEMPOTENCY.test(f.content)) {
+      results.push(warn('payments/idempotency', 'medium', 'Webhook handler has no idempotency guard — provider retries can double-credit orders', {
+        file: f.rel,
+        fix: 'Record processed event IDs (unique constraint) and skip duplicates.',
+      }));
     }
   }
 
-  if (hasSignatureValidation) {
-    results.push({ status: 'pass', message: 'Webhook signature validation found', file: signatureFile });
-  } else {
-    const firstFile = path.relative(dir, paymentRelatedFiles[0]);
-    results.push({
-      status: 'fail',
-      message: 'No webhook signature validation found \u2014 anyone can fake payment events',
-      file: firstFile,
-    });
+  for (const m of ctx.grep(ctx.code, CLIENT_AMOUNT)) {
+    results.push(fail('payments/client-amount', 'high', 'Charge amount taken from the request body — users can pay whatever they want', {
+      file: m.file, line: m.line, snippet: m.text,
+      fix: 'Look up the price server-side from your product/price ID.',
+    }));
   }
-
-  let hasErrorHandling = false;
-  for (const file of paymentRelatedFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (content.includes('try') && content.includes('catch')) {
-      hasErrorHandling = true;
-      break;
-    }
-  }
-
-  if (hasErrorHandling) {
-    results.push({ status: 'pass', message: 'Error handling (try/catch) found in payment routes' });
-  } else {
-    results.push({ status: 'warn', message: 'No try/catch found in payment files \u2014 unhandled failures will crash' });
-  }
-
-  let hasIdempotency = false;
-  for (const file of paymentRelatedFiles) {
-    const content = fs.readFileSync(file, 'utf-8');
-    if (
-      content.includes('idempotencyKey') ||
-      content.includes('idempotency_key') ||
-      content.includes('TransactionID') ||
-      content.includes('CheckoutRequestID')
-    ) {
-      hasIdempotency = true;
-      break;
-    }
-  }
-
-  results.push(
-    hasIdempotency
-      ? { status: 'pass', message: 'Idempotency keys found in payment flow' }
-      : { status: 'warn', message: 'No idempotency keys detected \u2014 duplicate payments may occur' }
-  );
 
   return results;
 }

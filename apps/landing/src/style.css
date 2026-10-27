@@ -1,11 +1,15 @@
 @import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @source "./src";
 @source "./index.html";
 
 /*
-  Preflight design system — "calm neutral" theme.
-  One accent family (near-black) for interactive chrome. Three semantic colors only:
-  green = good, amber = warning, red = issue. Everything else is neutral zinc.
+  Preflight design system: calm neutral, light + dark.
+  - One interactive accent: near-black in light mode, near-white in dark mode (`primary`).
+  - Three semantic colors only: pass (green), warn (amber), fail (red / `error`).
+  - Token names are shared by every component; dark mode only swaps their values below.
+  - Corner radii: controls 8px (rounded-lg), panels 12px (rounded-xl), pills full.
 */
 
 @theme {
@@ -37,21 +41,21 @@
   --color-outline: #a1a1aa;
   --color-outline-variant: #e4e4e7;
 
-  /* --- Accent (near-black, used for primary actions) --- */
+  /* --- Accent (primary actions) --- */
   --color-primary: #18181b;
-  --color-on-primary: #ffffff;
+  --color-on-primary: #fafafa;
   --color-primary-container: #f4f4f5;
-  --color-on-primary-container: #3f3f46;
+  --color-on-primary-container: #27272a;
   --color-primary-fixed: #ffffff;
   --color-primary-fixed-dim: #e4e4e7;
   --color-on-primary-fixed: #18181b;
   --color-on-primary-fixed-variant: #52525b;
   --color-inverse-primary: #fafafa;
-  --color-inverse-surface: #27272a;
-  --color-inverse-on-surface: #fafafa;
+  --color-inverse-surface: #18181b;
+  --color-inverse-on-surface: #f4f4f5;
   --color-surface-tint: #18181b;
 
-  /* --- Positive / "pass" green --- */
+  /* --- Pass (green) --- */
   --color-tertiary: #15803d;
   --color-on-tertiary: #ffffff;
   --color-tertiary-container: #15803d;
@@ -61,71 +65,193 @@
   --color-on-tertiary-fixed: #166534;
   --color-on-tertiary-fixed-variant: #15803d;
 
-  /* --- Failure red --- */
+  /* --- Fail (red) --- */
   --color-error: #dc2626;
   --color-on-error: #ffffff;
   --color-error-container: #fee2e2;
   --color-on-error-container: #991b1b;
 
-  /* --- Docs page remap (old "cockpit" dark theme tokens -> this neutral light theme) --- */
-  --color-cockpit-950: #ffffff;
-  --color-cockpit-900: #fafafa;
-  --color-cockpit-850: #f4f4f5;
-  --color-cockpit-800: #f0f0f2;
-  --color-cockpit-700: #e4e4e7;
-  --color-cockpit-border: #e4e4e7;
-  --color-cockpit-borderSubtle: #f0f0f2;
-  --color-cockpit-muted: #71717a;
-  --color-cockpit-text: #52525b;
-  --color-cockpit-bright: #18181b;
-
-  --color-status-pass: #16a34a;
-  --color-status-passMuted: rgba(22, 163, 74, 0.1);
-  --color-status-warn: #d97706;
-  --color-status-warnMuted: rgba(217, 119, 6, 0.1);
+  /* --- Semantic status (text-status-*, bg-status-*Muted) --- */
+  --color-status-pass: #15803d;
+  --color-status-passMuted: rgb(22 163 74 / 0.1);
+  --color-status-warn: #b45309;
+  --color-status-warnMuted: rgb(217 119 6 / 0.12);
   --color-status-fail: #dc2626;
-  --color-status-failMuted: rgba(220, 38, 38, 0.1);
+  --color-status-failMuted: rgb(220 38 38 / 0.1);
   --color-status-cyan: #71717a;
 
-  /* --- Spacing: roomier for a calm, readable feel --- */
+  /* --- Docs page (legacy "cockpit" names, mapped onto the same neutrals) --- */
+  --color-cockpit-950: var(--color-surface-container-lowest);
+  --color-cockpit-900: var(--color-background);
+  --color-cockpit-850: var(--color-surface-container-low);
+  --color-cockpit-800: var(--color-surface-container);
+  --color-cockpit-700: var(--color-surface-container-high);
+  --color-cockpit-border: var(--color-surface-container-high);
+  --color-cockpit-borderSubtle: var(--color-surface-container);
+  --color-cockpit-muted: var(--color-secondary);
+  --color-cockpit-text: var(--color-on-surface-variant);
+  --color-cockpit-bright: var(--color-on-surface);
+
+  /* --- Spacing --- */
   --spacing-space-xs: 0.375rem;
   --spacing-space-sm: 0.625rem;
   --spacing-space-md: 1rem;
-  --spacing-space-lg: 1.625rem;
-  --spacing-space-xl: 2.75rem;
-  --spacing-gutter: 1.25rem;
-  --spacing-gutter-desktop: 2rem;
+  --spacing-space-lg: 1.5rem;
+  --spacing-space-xl: 2.5rem;
+  --spacing-gutter: 1rem;
+  --spacing-gutter-desktop: 1rem;
   --spacing-margin: 1.25rem;
   --spacing-margin-desktop: 3rem;
 
-  /* --- Type --- */
-  --font-sans: "Inter", sans-serif;
-  --font-syne: "Inter", sans-serif;
-  --font-body-md: "Inter", sans-serif;
-  --font-headline-md: "Inter", sans-serif;
-  --font-body-lg: "Inter", sans-serif;
-  --font-headline-sm: "Inter", sans-serif;
-  --font-label-md: "Inter", sans-serif;
-  --font-body-sm: "Inter", sans-serif;
-  --font-code-inline: "JetBrains Mono", monospace;
-  --font-label-sm: "Inter", sans-serif;
-  --font-headline-lg-mobile: "Inter", sans-serif;
-  --font-headline-lg: "Inter", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  /* --- Type: Geist + Geist Mono, self-hosted --- */
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-syne: var(--font-sans);
+  --font-body-md: var(--font-sans);
+  --font-headline-md: var(--font-sans);
+  --font-body-lg: var(--font-sans);
+  --font-headline-sm: var(--font-sans);
+  --font-label-md: var(--font-sans);
+  --font-body-sm: var(--font-sans);
+  --font-code-inline: var(--font-mono);
+  --font-label-sm: var(--font-sans);
+  --font-headline-lg-mobile: var(--font-sans);
+  --font-headline-lg: var(--font-sans);
+}
+
+/* ---------------- Dark theme ----------------
+   Follows the OS by default; the header toggle pins it with <html data-theme="light|dark">. */
+@layer theme {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-background: #0b0b0d;
+    --color-on-background: #f4f4f5;
+    --color-surface: #0b0b0d;
+    --color-surface-bright: #18181b;
+    --color-surface-variant: #18181b;
+    --color-surface-dim: #27272a;
+    --color-surface-container-lowest: #111113;
+    --color-surface-container-low: #18181b;
+    --color-surface-container: #1f1f23;
+    --color-surface-container-high: #2a2a2f;
+    --color-surface-container-highest: #3f3f46;
+    --color-on-surface: #f4f4f5;
+    --color-on-surface-variant: #a1a1aa;
+    --color-secondary: #a1a1aa;
+    --color-on-secondary: #18181b;
+    --color-secondary-container: #27272a;
+    --color-on-secondary-container: #d4d4d8;
+    --color-secondary-fixed: #18181b;
+    --color-secondary-fixed-dim: #27272a;
+    --color-on-secondary-fixed: #f4f4f5;
+    --color-on-secondary-fixed-variant: #a1a1aa;
+    --color-outline: #71717a;
+    --color-outline-variant: #2a2a2f;
+    --color-primary: #f4f4f5;
+    --color-on-primary: #18181b;
+    --color-primary-container: #27272a;
+    --color-on-primary-container: #f4f4f5;
+    --color-primary-fixed: #18181b;
+    --color-primary-fixed-dim: #27272a;
+    --color-on-primary-fixed: #f4f4f5;
+    --color-on-primary-fixed-variant: #a1a1aa;
+    --color-inverse-primary: #18181b;
+    --color-inverse-surface: #050506;
+    --color-inverse-on-surface: #e4e4e7;
+    --color-surface-tint: #f4f4f5;
+    --color-tertiary: #4ade80;
+    --color-tertiary-container: #166534;
+    --color-tertiary-fixed: #052e16;
+    --color-tertiary-fixed-dim: #14532d;
+    --color-on-tertiary-fixed: #86efac;
+    --color-on-tertiary-fixed-variant: #4ade80;
+    --color-error: #f87171;
+    --color-on-error: #18181b;
+    --color-error-container: #3b1414;
+    --color-on-error-container: #fecaca;
+    --color-status-pass: #4ade80;
+    --color-status-passMuted: rgb(74 222 128 / 0.12);
+    --color-status-warn: #fbbf24;
+    --color-status-warnMuted: rgb(251 191 36 / 0.12);
+    --color-status-fail: #f87171;
+    --color-status-failMuted: rgb(248 113 113 / 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --color-background: #0b0b0d;
+      --color-on-background: #f4f4f5;
+      --color-surface: #0b0b0d;
+      --color-surface-bright: #18181b;
+      --color-surface-variant: #18181b;
+      --color-surface-dim: #27272a;
+      --color-surface-container-lowest: #111113;
+      --color-surface-container-low: #18181b;
+      --color-surface-container: #1f1f23;
+      --color-surface-container-high: #2a2a2f;
+      --color-surface-container-highest: #3f3f46;
+      --color-on-surface: #f4f4f5;
+      --color-on-surface-variant: #a1a1aa;
+      --color-secondary: #a1a1aa;
+      --color-on-secondary: #18181b;
+      --color-secondary-container: #27272a;
+      --color-on-secondary-container: #d4d4d8;
+      --color-secondary-fixed: #18181b;
+      --color-secondary-fixed-dim: #27272a;
+      --color-on-secondary-fixed: #f4f4f5;
+      --color-on-secondary-fixed-variant: #a1a1aa;
+      --color-outline: #71717a;
+      --color-outline-variant: #2a2a2f;
+      --color-primary: #f4f4f5;
+      --color-on-primary: #18181b;
+      --color-primary-container: #27272a;
+      --color-on-primary-container: #f4f4f5;
+      --color-primary-fixed: #18181b;
+      --color-primary-fixed-dim: #27272a;
+      --color-on-primary-fixed: #f4f4f5;
+      --color-on-primary-fixed-variant: #a1a1aa;
+      --color-inverse-primary: #18181b;
+      --color-inverse-surface: #050506;
+      --color-inverse-on-surface: #e4e4e7;
+      --color-surface-tint: #f4f4f5;
+      --color-tertiary: #4ade80;
+      --color-tertiary-container: #166534;
+      --color-tertiary-fixed: #052e16;
+      --color-tertiary-fixed-dim: #14532d;
+      --color-on-tertiary-fixed: #86efac;
+      --color-on-tertiary-fixed-variant: #4ade80;
+      --color-error: #f87171;
+      --color-on-error: #18181b;
+      --color-error-container: #3b1414;
+      --color-on-error-container: #fecaca;
+      --color-status-pass: #4ade80;
+      --color-status-passMuted: rgb(74 222 128 / 0.12);
+      --color-status-warn: #fbbf24;
+      --color-status-warnMuted: rgb(251 191 36 / 0.12);
+      --color-status-fail: #f87171;
+      --color-status-failMuted: rgb(248 113 113 / 0.12);
+    }
+  }
 }
 
 @layer base {
-  html, body {
+  html,
+  body {
     margin: 0;
     padding: 0;
     background-color: var(--color-background);
     color: var(--color-on-surface);
-    font-family: var(--font-body-md);
+    font-family: var(--font-sans);
+  }
+  html {
+    color-scheme: light;
+    scrollbar-gutter: stable;
   }
   body {
-    overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
   }
   main > :first-child {
     margin-top: 0 !important;
@@ -137,80 +263,101 @@
     background-color: var(--color-tertiary-fixed);
     color: var(--color-on-tertiary-fixed);
   }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  code,
+  pre,
+  kbd {
+    font-family: var(--font-mono);
+  }
 }
 
-::-webkit-scrollbar {
-  display: none;
+/* Type scale: readable line-height, tight tracking on headings */
+.font-body-md { font-family: var(--font-sans); font-size: 14px; line-height: 1.65; }
+.font-body-lg { font-family: var(--font-sans); font-size: 16px; line-height: 1.7; }
+.font-body-sm { font-family: var(--font-sans); font-size: 13px; line-height: 1.6; }
+.font-label-md { font-family: var(--font-sans); font-size: 13px; line-height: 1.5; font-weight: 500; }
+.font-label-sm { font-family: var(--font-sans); font-size: 12px; line-height: 1.5; font-weight: 500; }
+.font-code-inline { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; }
+.font-headline-sm { font-family: var(--font-sans); font-size: 15px; line-height: 1.45; letter-spacing: -0.01em; font-weight: 600; }
+.font-headline-md { font-family: var(--font-sans); font-size: 20px; line-height: 1.35; letter-spacing: -0.02em; font-weight: 600; }
+.font-headline-lg { font-family: var(--font-sans); font-size: 30px; line-height: 1.15; letter-spacing: -0.03em; font-weight: 650; }
+@media (min-width: 768px) {
+  .font-headline-lg { font-size: 36px; }
 }
 
-/* Readability-first type scale: generous line-height (>= 1.6), gentle letter-spacing */
-.font-body-md {
-  font-family: "Inter", sans-serif;
-  font-size: 14px;
-  line-height: 1.7;
-  letter-spacing: 0.005em;
+/* Buttons: one primary (solid accent) and one secondary (outlined) style, used everywhere */
+@layer components {
+  .btn-primary,
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    transition: background-color 0.15s, border-color 0.15s, transform 0.1s;
+  }
+  .btn-primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+  .btn-primary:hover {
+    background: color-mix(in oklab, var(--color-primary) 88%, transparent);
+  }
+  .btn-secondary {
+    border: 1px solid var(--color-surface-container-high);
+    background: var(--color-surface-container-lowest);
+    color: var(--color-on-surface);
+  }
+  .btn-secondary:hover {
+    background: var(--color-surface-container-low);
+  }
+  .btn-primary:active,
+  .btn-secondary:active {
+    transform: scale(0.98);
+  }
+  .btn-primary:disabled,
+  .btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 }
 
-.font-headline-md {
-  font-family: "Inter", sans-serif;
-  font-size: 21px;
-  line-height: 1.4;
-  letter-spacing: -0.015em;
-  font-weight: 650;
+/* Skeleton shimmer for loading states */
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-container-low) 0%, var(--color-surface-container) 50%, var(--color-surface-container-low) 100%);
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+@keyframes skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
-.font-body-lg {
-  font-family: "Inter", sans-serif;
-  font-size: 16px;
-  line-height: 1.75;
-  letter-spacing: 0.005em;
+/* Gentle entrance for newly rendered results */
+.fade-in {
+  animation: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
-.font-headline-sm {
-  font-family: "Inter", sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-  letter-spacing: -0.01em;
-  font-weight: 650;
-}
-
-.font-label-md {
-  font-family: "Inter", sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
-  letter-spacing: 0.01em;
-  font-weight: 500;
-}
-
-.font-body-sm {
-  font-family: "Inter", sans-serif;
-  font-size: 12.5px;
-  line-height: 1.65;
-  letter-spacing: 0.01em;
-}
-
-.font-code-inline {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.font-label-sm {
-  font-family: "Inter", sans-serif;
-  font-size: 11.5px;
-  line-height: 1.5;
-  letter-spacing: 0.03em;
-  font-weight: 500;
-}
-
-.font-headline-lg {
-  font-family: "Inter", sans-serif;
-  font-size: 32px;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-  font-weight: 700;
-}
-
-.font-headline-sm-mobile {
-  font-family: "Inter", sans-serif;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

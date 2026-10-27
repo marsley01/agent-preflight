@@ -1,0 +1,64 @@
+name: Release CLI
+
+# Publishes @preflight-agent/cli when a tag like `cli-v0.2.0` is pushed.
+# The tag must match packages/cli/package.json, and the full test matrix must pass first.
+# Requires an npm automation token in the repo secret NPM_TOKEN.
+on:
+  push:
+    tags: ["cli-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 22]
+    defaults:
+      run:
+        working-directory: packages/cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: packages/cli/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance: proves the package was built from this repo and commit
+    defaults:
+      run:
+        working-directory: packages/cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches package.json version
+        run: |
+          expected="cli-v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match $expected" >&2
+            exit 1
+          fi
+      - run: npm ci
+      # Pre-releases (e.g. 0.3.0-beta.1) go to the `next` tag so `npx @preflight-agent/cli` users don't get them.
+      - name: Publish
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag=latest
+          case "$version" in *-*) tag=next ;; esac
+          npm publish --provenance --access public --tag "$tag"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -4,13 +4,49 @@ and AI framework release feeds, structures it, and exposes it as a JSON API.
 """
 
 import asyncio
+import hmac
+import logging
 import os
+import time
 from typing import Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+log = logging.getLogger("vuln-engine")
+
+# Comma-separated list of browser origins allowed to call the API.
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "ALLOWED_ORIGINS", "http://localhost:5173,https://preflight-agent.vercel.app"
+    ).split(",")
+    if o.strip()
+]
+# Shared secret for endpoints that cost money or hit upstream rate limits.
+API_KEY = os.environ.get("PREFLIGHT_API_KEY", "")
+REFRESH_COOLDOWN = 60  # seconds between manual refreshes
+_last_manual_refresh = 0.0
+
+
+def require_api_key(request: Request, x_api_key: str = Header(default="")) -> None:
+    """Protect write/expensive endpoints.
+
+    With PREFLIGHT_API_KEY set, callers must send a matching X-API-Key header.
+    Without it, only loopback clients are allowed, so a fresh deploy is never open by default.
+    """
+    if API_KEY:
+        if not hmac.compare_digest(x_api_key.encode(), API_KEY.encode()):
+            raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
+        return
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(
+            status_code=403,
+            detail="Set PREFLIGHT_API_KEY to enable this endpoint for remote clients",
+        )
 
 from fetchers.nvd import fetch_recent_cves, search_cve
 from fetchers.github_advisories import fetch_recent_advisories, search_advisories
@@ -81,9 +117,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 
@@ -151,7 +187,7 @@ async def get_intelligence(
 
 @app.get("/v1/search", response_model=VulnListResponse)
 async def search_intelligence(
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(20, ge=1, le=100),
 ):
     """Search intelligence by keyword across all sources."""
@@ -170,9 +206,14 @@ async def search_intelligence(
     )
 
 
-@app.post("/v1/refresh")
+@app.post("/v1/refresh", dependencies=[Depends(require_api_key)])
 async def refresh():
-    """Manually trigger a cache refresh."""
+    """Manually trigger a cache refresh (rate limited to protect upstream API quotas)."""
+    global _last_manual_refresh
+    now = time.monotonic()
+    if now - _last_manual_refresh < REFRESH_COOLDOWN:
+        raise HTTPException(status_code=429, detail=f"Refresh allowed once every {REFRESH_COOLDOWN}s")
+    _last_manual_refresh = now
     count = await refresh_cache()
     return {"status": "ok", "items_refreshed": count}
 
@@ -182,10 +223,11 @@ async def refresh():
 # ---------------------------------------------------------------------------
 
 class AiFixRequest(BaseModel):
-    error_log: str = ""
-    affected_code: str = ""
-    file_path: str = ""
-    tech_stack: str = ""
+    # Bounded so a single request can't run up a huge LLM bill.
+    error_log: str = Field("", max_length=8_000)
+    affected_code: str = Field("", max_length=16_000)
+    file_path: str = Field("", max_length=500)
+    tech_stack: str = Field("", max_length=500)
 
 
 class AiFixResponse(BaseModel):
@@ -197,7 +239,7 @@ class AiFixResponse(BaseModel):
     source: str = "openai"
 
 
-@app.post("/v1/fix")
+@app.post("/v1/fix", dependencies=[Depends(require_api_key)])
 async def generate_fix(req: AiFixRequest):
     """Generate an AI-powered fix for a detected vulnerability."""
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -259,9 +301,11 @@ async def generate_fix(req: AiFixRequest):
             model_used=model_used,
             source="openai",
         )
-    except Exception as exc:
+    except Exception:
+        # Upstream errors can include request details; log them, don't return them.
+        log.exception("AI fix generation failed")
         return AiFixResponse(
-            root_cause=f"AI generation failed: {exc}",
+            root_cause="AI generation failed. Check the vuln-engine logs for details.",
             coder_agent_prompt="n/a",
             verification_steps=["Check the vuln-engine logs for details"],
             documentation_links=[],
@@ -313,4 +357,9 @@ def _extract_list(lines: list[str], heading: str) -> list[str]:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8412, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8412")),
+        reload=os.environ.get("RELOAD") == "1",
+    )

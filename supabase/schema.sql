@@ -32,11 +32,11 @@ create policy "Users can read their own scan reports"
   to authenticated
   using ( (select auth.uid()) = user_id );
 
--- Anonymous users can insert without a user_id
+-- Anonymous users may only insert unowned reports; signed-in users only as themselves.
 create policy "Anyone can insert scan reports"
   on public.scan_reports for insert
   to anon, authenticated
-  with check ( true );
+  with check ( user_id is null or user_id = (select auth.uid()) );
 
 -- Only owners can delete
 create policy "Users can delete their own reports"
@@ -69,7 +69,7 @@ create policy "Users can read their own scan history"
 create policy "Anyone can insert scan history"
   on public.scan_history for insert
   to anon, authenticated
-  with check ( true );
+  with check ( user_id is null or user_id = (select auth.uid()) );
 
 create policy "Users can delete their own history"
   on public.scan_history for delete

@@ -34,6 +34,9 @@ jobs:
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
       actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
     runs-on: ubuntu-latest
+    # Skip cleanly (instead of failing) on forks and repos without a Snyk token.
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -42,12 +45,13 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
+        if: env.SNYK_TOKEN != ''
         run: |
-          cd packages/cli && npm install
-          cd ../../apps/landing && npm install
-          cd ../..
+          cd packages/cli && npm ci
+          cd ../../apps/landing && npm ci
 
       - name: Set up Snyk CLI to check for security issues
+        if: env.SNYK_TOKEN != ''
         # Snyk can be used to break the build when it detects security issues.
         # In this case we want to upload the SAST issues to GitHub Code Scanning
         uses: snyk/actions/setup@806182742461562b67788a64410098c9d9b96adb
@@ -58,12 +62,15 @@ jobs:
         # Runs Snyk Code (SAST) analysis and uploads result into GitHub.
         # Use || true to not fail the pipeline
       - name: Snyk Code test
-        run: snyk code test --sarif > snyk-code.sarif # || true
+        if: env.SNYK_TOKEN != ''
+        continue-on-error: true # findings are reported via SARIF below
+        run: snyk code test --sarif > snyk-code.sarif
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
         # Runs Snyk Open Source (SCA) analysis and uploads result to Snyk.
       - name: Snyk Open Source monitor
+        if: env.SNYK_TOKEN != ''
         run: snyk monitor --all-projects
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -71,12 +78,15 @@ jobs:
         # Runs Snyk Infrastructure as Code (IaC) analysis and uploads result to Snyk.
         # Use || true to not fail the pipeline.
       - name: Snyk IaC test and report
-        run: snyk iac test --report # || true
+        if: env.SNYK_TOKEN != ''
+        continue-on-error: true
+        run: snyk iac test --report
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
         # Push the Snyk Code results into GitHub Code Scanning tab
       - name: Upload result to GitHub Code Scanning
+        if: always() && hashFiles('snyk-code.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: snyk-code.sarif

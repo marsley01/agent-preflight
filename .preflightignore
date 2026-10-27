@@ -1,0 +1,7 @@
+# Paths excluded from `preflight scan` (gitignore-style globs).
+# The scanner's own rule definitions and docs contain the exact patterns they detect.
+packages/cli/src/checks/
+packages/cli/test/
+packages/shared/src/checks/
+packages/shared/src/engine.ts
+apps/landing/src/components/DocsPage.tsx

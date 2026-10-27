@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { ALL_CHECKS, CHECKS_BY_CATEGORY } from './checks/index';
 import { calculateProductionScore, scoreCategory } from './scoring';
+import { getClientFiles, runOtherDatabaseChecks, runUiChecks } from './ui-db-checks';
 
 interface FileEntry {
   path: string;
@@ -24,6 +25,10 @@ interface ScanCtx {
   token?: string;
   files: Map<string, string | null>;
   allFilePaths: string[];
+  /** Fetched source files only (no docs, tests, vendored or built output) */
+  codeFiles: string[];
+  /** Concatenated content of codeFiles: use for code-pattern checks */
+  codeJoined: string;
 }
 
 function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
@@ -35,12 +40,87 @@ function parseGitHubUrl(input: string): { owner: string; repo: string } | null {
 }
 
 async function fetchWithRetry(url: string, opts: RequestInit, retries = 3): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    const res = await fetch(url, opts);
-    if (res.ok || res.status >= 400) return res;
-    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+  let lastError: unknown;
+  for (let i = 0; i <= retries; i++) {
+    if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    try {
+      const res = await fetch(url, opts);
+      // Only 5xx and 429 are worth retrying; other statuses are final.
+      if (res.status < 500 && res.status !== 429) return res;
+      if (i === retries) return res;
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      lastError = err;
+      if (i === retries) throw err;
+    }
+    await new Promise(r => setTimeout(r, 500 * 2 ** i));
   }
-  return fetch(url, opts);
+  throw lastError;
+}
+
+const MAX_FILE_BYTES = 500_000;
+const MAX_FETCHED_FILES = 1500;
+const LOCKFILE_RE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|npm-shrinkwrap\.json)$/;
+const CODE_FILE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
+const NON_SOURCE_RE = /(^|\/)(node_modules|dist|build|out|\.next|vendor|coverage|__tests__|__mocks__)\/|\.(test|spec)\.\w+$|\.d\.ts$|\.min\.(js|css)$/;
+
+function isCodeFile(filePath: string): boolean {
+  return CODE_FILE_RE.test(filePath) && !NON_SOURCE_RE.test(filePath);
+}
+
+function encodePath(filePath: string): string {
+  return filePath.split('/').map(encodeURIComponent).join('/');
+}
+
+/** High-signal credential formats: matching the value, not the variable name. */
+const SECRET_PATTERNS: { regex: RegExp; label: string }[] = [
+  { regex: /AKIA[0-9A-Z]{16}/, label: 'AWS access key' },
+  { regex: /gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}/, label: 'GitHub token' },
+  { regex: /[sr]k_live_[A-Za-z0-9]{20,}/, label: 'Stripe live secret key' },
+  { regex: /sk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{32,}/, label: 'Anthropic API key' },
+  { regex: /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{40,}|\bsk-[A-Za-z0-9]{48}\b|sk-[A-Za-z0-9]{20}T3BlbkFJ/, label: 'OpenAI API key' },
+  { regex: /AIza[0-9A-Za-z_-]{35}/, label: 'Google API key' },
+  { regex: /xox[baprs]-[A-Za-z0-9-]{10,}/, label: 'Slack token' },
+  { regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----/, label: 'Private key' },
+  { regex: /service_role[^\n]{0,40}eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}/, label: 'Supabase service_role JWT' },
+];
+
+const PUBLIC_SECRET_ENV_RE = /\b(?:NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|PUBLIC_)\w*(?:SECRET|SERVICE_ROLE|PRIVATE)\w*/;
+
+function looksLikePlaceholder(line: string): boolean {
+  return /xxx|your_|your-|example|<[^>]*>|\.\.\./i.test(line);
+}
+
+function redact(line: string, secret: string): string {
+  return line.replace(secret, `${secret.slice(0, 4)}****`);
+}
+
+/** A real env file that should never be committed (templates are fine). */
+function isRealEnvFile(filePath: string): boolean {
+  return /(^|\/)\.env(\.(local|development|production|staging|test)(\.local)?)?$/.test(filePath);
+}
+
+/** Whether .gitignore contents actually ignore a root `.env` file. */
+function ignoresDotEnv(gitignore: string): boolean {
+  const lines = gitignore.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  // `.env.*` alone does not cover `.env` itself
+  const ignored = lines.some(l => /^\/?(\*\*\/)?(\.env\*?|\*\.env\*?|\*)$/.test(l));
+  const negated = lines.some(l => /^!\/?\.env$/.test(l));
+  return ignored && !negated;
+}
+
+/** Whether the repo actually calls an LLM provider SDK. */
+function usesLlmSdk(ctx: ScanCtx): boolean {
+  const sdkRe = /^(openai|@anthropic-ai\/sdk|ai|@ai-sdk\/.+|langchain|@langchain\/.+|@google\/generative-ai|@google\/genai|groq-sdk|@mistralai\/.+|cohere-ai|ollama|llamaindex)$/;
+  for (const p of ctx.allFilePaths.filter(f => f === 'package.json' || f.endsWith('/package.json'))) {
+    const content = ctx.files.get(p);
+    if (!content) continue;
+    try {
+      const pkg = JSON.parse(content);
+      if (Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).some(d => sdkRe.test(d))) return true;
+    } catch {}
+  }
+  return /from\s+['"](openai|@anthropic-ai\/sdk|ai|@ai-sdk\/[\w-]+|langchain[\w/-]*|@langchain\/[\w-]+|@google\/generative-ai|@google\/genai|groq-sdk|ollama|llamaindex)['"]/.test(ctx.codeJoined);
 }
 
 async function loadRepository(
@@ -64,7 +144,7 @@ async function loadRepository(
   const defaultBranch = repoInfo.default_branch || 'main';
 
   // 2. Get full file tree in ONE API call via Git Trees API
-  const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`;
+  const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`;
   const treeRes = await fetchWithRetry(treeUrl, { headers, signal });
   if (!treeRes.ok) throw new Error('Failed to fetch repository tree');
 
@@ -76,10 +156,15 @@ async function loadRepository(
     for (const item of treeData.tree) {
       if (item.type === 'blob') {
         paths.push(item.path);
-        // Pre-filter to relevant files only — skip binaries, large files, .git
+        // Lockfiles only matter for presence; their content is huge
+        if (LOCKFILE_RE.test(item.path)) continue;
+        if (typeof item.size === 'number' && item.size > MAX_FILE_BYTES) continue;
+        if (/(^|\/)node_modules\//.test(item.path)) continue;
+        // Pre-filter to relevant files only: skip binaries, large files, .git
         if (
-          /\.(ts|tsx|js|jsx|json|env|yml|yaml|css|scss|html|md|sql|prisma|toml)$/.test(item.path) ||
+          /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|astro|json|env|yml|yaml|css|scss|sass|less|html|md|sql|prisma|toml|rules)$/.test(item.path) ||
           /\.(config\.(ts|js|mjs)|eslintrc|prettierrc)$/.test(item.path) ||
+          /(^|\/)\.env(\.[\w-]+)?$/.test(item.path) ||
           ['Dockerfile', 'docker-compose.yml', '.gitignore', '.env.example', 'Makefile', 'nginx.conf', '.htaccess', 'web.config', 'package.json'].some(n => item.path === n || item.path.endsWith('/' + n))
         ) {
           relevantPaths.push(item.path);
@@ -88,9 +173,14 @@ async function loadRepository(
     }
   }
 
+  // Root-level files first so config checks still work when the cap kicks in
+  relevantPaths.sort((a, b) => a.split('/').length - b.split('/').length);
+  const truncated = Boolean(treeData.truncated) || relevantPaths.length > MAX_FETCHED_FILES;
+  relevantPaths.length = Math.min(relevantPaths.length, MAX_FETCHED_FILES);
+
   const files = new Map<string, string | null>();
 
-  // 3. Fetch file contents in parallel — HIGH concurrency (25)
+  // 3. Fetch file contents in parallel: HIGH concurrency (25)
   const MAX_CONCURRENCY = 25;
   let pending = 0;
   const queue: (() => void)[] = [];
@@ -110,14 +200,19 @@ async function loadRepository(
     if (signal?.aborted) return;
     await acquire();
     try {
-      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-      const res = await fetchWithRetry(url, { headers, signal });
+      // Unauthenticated: raw.githubusercontent.com doesn't count against the 60 req/hr API quota.
+      // Authenticated: the contents API (5000 req/hr) also works for private repos.
+      const res = token
+        ? await fetchWithRetry(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${encodePath(filePath)}?ref=${encodeURIComponent(defaultBranch)}`,
+            { headers: { ...headers, Accept: 'application/vnd.github.raw' }, signal },
+          )
+        : await fetchWithRetry(
+            `https://raw.githubusercontent.com/${owner}/${repo}/${encodePath(defaultBranch)}/${encodePath(filePath)}`,
+            { signal },
+          );
       if (res.ok) {
-        const data = await res.json();
-        if (data.content) {
-          const content = atob(data.content.replace(/\n/g, ''));
-          files.set(filePath, content);
-        }
+        files.set(filePath, await res.text());
       }
     } catch {
       // skip failed file fetches
@@ -126,7 +221,29 @@ async function loadRepository(
     }
   }));
 
-  return { files, paths, info: repoInfo };
+  return { files, paths, info: { ...repoInfo, truncated } };
+}
+
+/** First line in a source file matching `pattern`, skipping comment lines. */
+function findInCode(ctx: ScanCtx, pattern: RegExp): { file: string; line: number; snippet: string } | null {
+  for (const filePath of ctx.codeFiles) {
+    const content = ctx.files.get(filePath);
+    if (!content) continue;
+    const hit = checkLines(content, l => {
+      const t = l.trim();
+      return !t.startsWith('//') && !t.startsWith('*') && pattern.test(l);
+    });
+    if (hit.found) return { file: filePath, line: hit.lineIndex + 1, snippet: content.split('\n')[hit.lineIndex].trim() };
+  }
+  return null;
+}
+
+/** Code + config + markup, but not docs: a README that mentions HSTS doesn't configure it. */
+function nonDocJoined(ctx: ScanCtx): string {
+  return [...ctx.files.entries()]
+    .filter(([p, c]) => c && !/\.(md|mdx|txt)$/i.test(p) && !NON_SOURCE_RE.test(p))
+    .map(([, c]) => c)
+    .join('\n');
 }
 
 function checkPattern(content: string, patterns: RegExp[]): boolean {
@@ -172,92 +289,116 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 
   const gitignore = ctx.files.get('.gitignore');
-  if (gitignore !== null) {
-    if (gitignore!.includes('.env')) {
+  if (gitignore) {
+    if (ignoresDotEnv(gitignore)) {
       results.push({ checkId: 'security-secrets-env-gitignored', status: 'pass', message: '.env is gitignored' });
     } else {
-      results.push({ checkId: 'security-secrets-env-gitignored', status: 'fail', message: '.env is NOT gitignored — secrets will be committed', suggestedFix: 'Add .env to your .gitignore file' });
+      results.push({ checkId: 'security-secrets-env-gitignored', status: 'fail', message: '.env is NOT gitignored: secrets will be committed', suggestedFix: 'Add .env to your .gitignore file' });
     }
   } else {
     results.push({ checkId: 'security-secrets-env-gitignored', status: 'warn', message: 'No .gitignore found' });
   }
 
+  const committedEnv = ctx.allFilePaths.filter(isRealEnvFile);
+  results.push(committedEnv.length > 0
+    ? {
+        checkId: 'security-committed-env-file',
+        status: 'fail',
+        message: `Environment file committed to the repository: ${committedEnv.slice(0, 3).join(', ')}`,
+        file: committedEnv[0],
+        suggestedFix: 'Remove the file with `git rm --cached`, add it to .gitignore, and rotate every secret it contained.',
+      }
+    : { checkId: 'security-committed-env-file', status: 'pass', message: 'No .env files committed' });
+
   const envExample = ctx.files.get('.env.example');
-  if (envExample !== null) {
+  if (envExample) {
     results.push({ checkId: 'security-secrets-env-example', status: 'pass', message: '.env.example exists' });
-    const hasAuthSecret = /JWT_SECRET|NEXTAUTH_SECRET|AUTH_SECRET/.test(envExample!);
+    const hasAuthSecret = /JWT_SECRET|NEXTAUTH_SECRET|AUTH_SECRET/.test(envExample);
     results.push({
       checkId: 'security-auth-secret',
       status: hasAuthSecret ? 'pass' : 'warn',
       message: hasAuthSecret ? 'Auth secret documented in .env.example' : 'No JWT_SECRET or NEXTAUTH_SECRET in .env.example',
     });
   } else {
-    results.push({ checkId: 'security-secrets-env-example', status: 'warn', message: 'No .env.example — collaborators won\'t know what vars to set' });
-    results.push({ checkId: 'security-auth-secret', status: 'warn', message: 'No .env.example — cannot verify auth secret documentation' });
+    results.push({ checkId: 'security-secrets-env-example', status: 'warn', message: 'No .env.example: collaborators won\'t know what vars to set' });
+    results.push({ checkId: 'security-auth-secret', status: 'warn', message: 'No .env.example: cannot verify auth secret documentation' });
   }
 
-  const clientExtensions = ['.ts', '.tsx', '.js', '.jsx'];
-  const clientDirs = ['components/', 'app/', 'pages/', 'src/app/', 'src/pages/', 'src/components/', 'src/lib/'];
-  const suspiciousFiles = ctx.allFilePaths.filter(f =>
-    clientExtensions.some(ext => f.endsWith(ext)) &&
-    clientDirs.some(d => f.startsWith(d))
+  // Hardcoded secret values, across code and config files (not docs or tests)
+  const secretScanFiles = [...ctx.files.keys()].filter(f =>
+    !NON_SOURCE_RE.test(f) && !/\.(md|lock)$/.test(f) && !/(^|\/)\.env\.(example|sample|template)$/.test(f)
   );
-
-  const dangerousPatterns = [
-    { regex: /supabase.*service_role/i, label: 'Supabase service role key' },
-    { regex: /sk-[a-zA-Z0-9]{20,}/, label: 'OpenAI API key' },
-    { regex: /STRIPE_SECRET_KEY/, label: 'Stripe secret key' },
-    { regex: /ANTHROPIC_API_KEY/, label: 'Anthropic API key' },
-    { regex: /Consumer_Secret/i, label: 'M-Pesa consumer secret' },
-    { regex: /AI_API_KEY|ai_api_key/, label: 'AI API key' },
-  ];
-
   let foundSecret = false;
-  for (const filePath of suspiciousFiles) {
+  for (const filePath of secretScanFiles) {
     const content = ctx.files.get(filePath);
     if (!content) continue;
-    for (const { regex, label } of dangerousPatterns) {
-      const result = checkLines(content, (line) => regex.test(line) && !line.trim().startsWith('//') && !line.trim().startsWith('*'));
-      if (result.found) {
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      for (const { regex, label } of SECRET_PATTERNS) {
+        const match = lines[i].match(regex);
+        if (!match || looksLikePlaceholder(lines[i])) continue;
         results.push({
-          checkId: 'security-secrets-client-exposure',
+          checkId: 'security-hardcoded-secrets',
           status: 'fail',
-          message: `${label} found in client-side code`,
+          message: `${label} hardcoded in source`,
           file: filePath,
-          line: result.lineIndex + 1,
-          snippet: content.split('\n')[result.lineIndex].trim(),
+          line: i + 1,
+          snippet: redact(lines[i].trim(), match[0]),
+          suggestedFix: 'Rotate this credential now, then load it from a server-only environment variable.',
         });
         foundSecret = true;
+        break;
       }
     }
   }
-  if (suspiciousFiles.length > 0 && !foundSecret) {
-    results.push({ checkId: 'security-secrets-client-exposure', status: 'pass', message: 'No dangerous secrets found in client-side code' });
+  if (!foundSecret) {
+    results.push({ checkId: 'security-hardcoded-secrets', status: 'pass', message: 'No hardcoded API keys or private keys found' });
   }
 
-  const middlewarePaths = ['middleware.ts', 'src/middleware.ts', 'middleware.js'];
-  const hasMiddleware = middlewarePaths.some(p => ctx.files.has(p) && ctx.files.get(p) !== null);
+  // Secrets behind a client-exposed env prefix get inlined into the browser bundle
+  let foundPublicSecret = false;
+  for (const filePath of [...ctx.codeFiles, ...ctx.allFilePaths.filter(f => /(^|\/)\.env(\.[\w-]+)?$/.test(f))]) {
+    const content = ctx.files.get(filePath);
+    if (!content) continue;
+    const found = findLine(content, PUBLIC_SECRET_ENV_RE);
+    if (found.found) {
+      results.push({
+        checkId: 'security-secrets-client-exposure',
+        status: 'fail',
+        message: `Secret exposed through a public env prefix (${found.lineContent?.match(PUBLIC_SECRET_ENV_RE)?.[0]})`,
+        file: filePath,
+        line: found.line,
+        snippet: found.lineContent,
+      });
+      foundPublicSecret = true;
+    }
+  }
+  if (!foundPublicSecret) {
+    results.push({ checkId: 'security-secrets-client-exposure', status: 'pass', message: 'No secrets behind NEXT_PUBLIC_/VITE_ style public env vars' });
+  }
+
+  // Next.js 16 renamed middleware.ts to proxy.ts
+  const hasMiddleware = ctx.allFilePaths.some(p => /^(src\/)?(middleware|proxy)\.(ts|js|mjs)$/.test(p));
   results.push({
     checkId: 'security-auth-middleware',
     status: hasMiddleware ? 'pass' : 'warn',
-    message: hasMiddleware ? 'Auth middleware file found' : 'No middleware.ts found — protected routes may be unsecured',
+    message: hasMiddleware ? 'Auth middleware file found' : 'No middleware.ts / proxy.ts found: protected routes may be unsecured',
   });
 
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allContentJoined = allContent.join('\n');
+  const allContentJoined = nonDocJoined(ctx);
 
   const hasCsrf = /csrf|CSRF|csrfToken|SameSite|sameSite|same-site|xsrf|XSRF/.test(allContentJoined);
   results.push({
     checkId: 'security-csrf-protection',
     status: hasCsrf ? 'pass' : 'warn',
-    message: hasCsrf ? 'CSRF protection detected' : 'No CSRF protection detected — forms and API mutations may be vulnerable',
+    message: hasCsrf ? 'CSRF protection detected' : 'No CSRF protection detected: forms and API mutations may be vulnerable',
   });
 
   const hasRateLimit = /ratelimit|rate-limit|upstash.*ratelimit|express-rate-limit/.test(allContentJoined);
   results.push({
     checkId: 'security-rate-limiting',
     status: hasRateLimit ? 'pass' : 'warn',
-    message: hasRateLimit ? 'Rate limiting detected' : 'No rate limiting found — API may be open to abuse',
+    message: hasRateLimit ? 'Rate limiting detected' : 'No rate limiting found: API may be open to abuse',
   });
 
   const configContent = ['next.config.ts', 'next.config.js', 'next.config.mjs', '.env', 'vite.config.ts']
@@ -269,14 +410,14 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   results.push({
     checkId: 'security-csp-configured',
     status: hasCsp ? 'pass' : 'warn',
-    message: hasCsp ? 'Content Security Policy (CSP) configured' : 'No CSP found — app may be vulnerable to XSS',
+    message: hasCsp ? 'Content Security Policy (CSP) configured' : 'No CSP found: app may be vulnerable to XSS',
   });
 
   const hasHsts = /Strict-Transport-Security|HSTS/.test(allContentJoined);
   results.push({
     checkId: 'security-hsts',
     status: hasHsts ? 'pass' : 'warn',
-    message: hasHsts ? 'HSTS configured' : 'No HSTS header found — users may connect over HTTP',
+    message: hasHsts ? 'HSTS configured' : 'No HSTS header found: users may connect over HTTP',
   });
 
   const hasNosniff = /nosniff|X-Content-Type-Options/.test(allContentJoined);
@@ -307,19 +448,15 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     message: hasCookieSecurity ? 'Cookie security flags detected' : 'No cookie security flags detected',
   });
 
-  const hasXss = /dangerouslySetInnerHTML|\.innerHTML\s*=/.test(allContentJoined);
-  results.push({
-    checkId: 'security-xss-protection',
-    status: hasXss ? 'warn' : 'pass',
-    message: hasXss ? 'dangerouslySetInnerHTML or innerHTML assignment found — potential XSS risk' : 'No dangerous HTML assignments found',
-  });
+  const xss = findInCode(ctx, /dangerouslySetInnerHTML|\.(innerHTML|outerHTML)\s*=[^=]|document\.write\(/);
+  results.push(xss
+    ? { checkId: 'security-xss-protection', status: 'warn', message: 'dangerouslySetInnerHTML or innerHTML assignment found: potential XSS risk', ...xss }
+    : { checkId: 'security-xss-protection', status: 'pass', message: 'No dangerous HTML assignments found' });
 
-  const hasEval = /eval\s*\(/.test(allContentJoined);
-  results.push({
-    checkId: 'security-eval-usage',
-    status: hasEval ? 'fail' : 'pass',
-    message: hasEval ? 'eval() usage detected — arbitrary code execution risk' : 'No eval() usage detected',
-  });
+  const evalHit = findInCode(ctx, /(?<![\w.$])eval\s*\(|\bnew\s+Function\s*\(/);
+  results.push(evalHit
+    ? { checkId: 'security-eval-usage', status: 'fail', message: 'eval() or new Function() detected: arbitrary code execution risk', ...evalHit }
+    : { checkId: 'security-eval-usage', status: 'pass', message: 'No eval() or new Function() usage detected' });
 
   const hasXfo = /X-Frame-Options:\s*DENY/.test(allContentJoined);
   results.push({
@@ -329,7 +466,8 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   });
 
   const hasOauth = /OAuth|oauth|passport|next-auth|nextauth|auth\.js/.test(allContentJoined);
-  const hasOauthState = /state|PKCE|pkce/.test(allContentJoined);
+  // Auth libraries handle state/PKCE themselves; hand-rolled flows must do it explicitly
+  const hasOauthState = /PKCE|pkce|code_verifier|codeVerifier|next-auth|nextauth|@auth\/|better-auth|@clerk\/|@supabase\/(ssr|auth-helpers)|oauth_state|oauthState/.test(allContentJoined);
   if (hasOauth) {
     results.push({
       checkId: 'security-oauth-configured',
@@ -338,8 +476,8 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     });
   }
 
-  const hasInputValidation = /z\.object|yup\.object|\.parse\(|\.safeParse\(|\.validate\(/.test(allContentJoined);
-  const hasApiRoutes = ctx.allFilePaths.some(f => f.startsWith('src/app/api/') || f.startsWith('pages/api/'));
+  const hasInputValidation = /z\.object|yup\.object|v\.object|\.safeParse\(|\.parse\(|\.validate\(/.test(ctx.codeJoined);
+  const hasApiRoutes = ctx.allFilePaths.some(f => /^(src\/)?(app\/api|pages\/api)\//.test(f));
   if (hasApiRoutes) {
     results.push({
       checkId: 'security-input-validation',
@@ -348,19 +486,17 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     });
   }
 
-  const hasPackageLock = ctx.files.has('package-lock.json') || ctx.files.has('yarn.lock') || ctx.files.has('pnpm-lock.yaml');
+  const hasPackageLock = ctx.allFilePaths.some(f => LOCKFILE_RE.test(f));
   results.push({
     checkId: 'security-dependency-vulnerabilities',
     status: hasPackageLock ? 'info' : 'warn',
-    message: hasPackageLock ? 'Lock file found — run npm audit for vulnerability scan' : 'No lock file found — dependencies may be vulnerable',
+    message: hasPackageLock ? 'Lock file found: run npm audit for vulnerability scan' : 'No lock file found: dependencies may be vulnerable',
   });
 
-  const hasDebug = /debug:\s*true|debug\s*=\s*true|isDebug\s*=\s*true/.test(allContentJoined);
-  results.push({
-    checkId: 'security-debug-mode',
-    status: hasDebug ? 'warn' : 'pass',
-    message: hasDebug ? 'Debug mode enabled in source' : 'No debug mode flags detected',
-  });
+  const debug = findInCode(ctx, /\b(debug|isDebug)\s*[:=]\s*true\b/);
+  results.push(debug
+    ? { checkId: 'security-debug-mode', status: 'warn', message: 'Debug mode enabled in source', ...debug }
+    : { checkId: 'security-debug-mode', status: 'pass', message: 'No debug mode flags detected' });
 
   const gitignoreContent = ctx.files.get('.gitignore');
   if (gitignoreContent) {
@@ -373,33 +509,42 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     });
   }
 
+  // --- Supabase-specific checks ---
+  const hasSupabase = /@supabase\/|supabase/i.test(ctx.codeJoined) || ctx.allFilePaths.some(f => f.startsWith('supabase/'));
+
+  // RLS only matters when clients reach the database directly (Supabase / PostgREST). Apps that only
+  // connect from the server (Drizzle, Prisma, pg) are protected by their own API layer.
   const hasSqlFiles = ctx.allFilePaths.some(f => f.endsWith('.sql'));
   const hasRls = /row level security|enable rls|CREATE POLICY/i.test(allContentJoined);
   results.push({
     checkId: 'security-rls-enabled',
-    status: hasSqlFiles && hasRls ? 'pass' : (hasSqlFiles ? 'fail' : 'warn'),
+    status: hasSqlFiles && hasRls ? 'pass' : (hasSqlFiles ? (hasSupabase ? 'fail' : 'info') : 'warn'),
     message: hasSqlFiles && hasRls ? 'Row Level Security enabled in migrations' :
-      hasSqlFiles ? 'No RLS policies found in SQL migrations' : 'No SQL migrations found',
+      hasSqlFiles
+        ? (hasSupabase ? 'No RLS policies found in SQL migrations' : 'No RLS in SQL migrations: fine while only your server connects to the database')
+        : 'No SQL migrations found',
   });
-
-  // --- Supabase-specific checks ---
-  const hasSupabase = /supabase/i.test(allContentJoined);
   const sqlContent = ctx.allFilePaths
     .filter(f => f.endsWith('.sql'))
     .map(f => ctx.files.get(f))
     .filter(Boolean)
     .join('\n');
 
-  // 1. Supabase service_role key in client-side code (enhanced)
+  // 1. Supabase service_role key referenced from code that ships to the browser
+  const clientFiles = getClientFiles(ctx);
   let foundServiceKey = false;
-  for (const filePath of suspiciousFiles) {
+  for (const filePath of clientFiles) {
     const content = ctx.files.get(filePath);
-    if (content && /supabase.*service_role/i.test(content) && !/\/\/|service_role_key_in_env|VITE_SUPABASE_SERVICE_KEY/.test(content)) {
+    if (!content) continue;
+    const hit = checkLines(content, l => /service_role/i.test(l) && !l.trim().startsWith('//') && !l.trim().startsWith('*'));
+    if (hit.found) {
       results.push({
         checkId: 'security-supabase-service-key-exposure',
         status: 'fail',
-        message: 'Supabase service_role key found in client-side code — full database access exposed',
+        message: 'Supabase service_role key referenced in client-side code: full database access exposed',
         file: filePath,
+        line: hit.lineIndex + 1,
+        snippet: content.split('\n')[hit.lineIndex].trim(),
       });
       foundServiceKey = true;
     }
@@ -412,7 +557,7 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     });
   }
 
-  // 2. RLS policy completeness — UPDATE with WITH CHECK
+  // 2. RLS policy completeness: UPDATE with WITH CHECK
   if (sqlContent) {
     const updatePolicies = sqlContent.match(/CREATE\s+POLICY.*FOR\s+UPDATE/gi);
     const withUpdateCheck = sqlContent.match(/CREATE\s+POLICY[\s\S]*?FOR\s+UPDATE[\s\S]*?WITH\s+CHECK/gi);
@@ -425,26 +570,26 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
         status: hasWithCheck ? 'pass' : 'fail',
         message: hasWithCheck
           ? 'UPDATE policies include WITH CHECK clauses'
-          : 'UPDATE policies missing WITH CHECK — users can reassign row ownership',
+          : 'UPDATE policies missing WITH CHECK: users can reassign row ownership',
       });
     } else if (hasRls) {
       results.push({
         checkId: 'security-supabase-rls-policy-completeness',
         status: 'info',
-        message: 'No UPDATE policies found — verify DELETE policies have WITH CHECK if applicable',
+        message: 'No UPDATE policies found: verify DELETE policies have WITH CHECK if applicable',
       });
     }
   }
 
   // 3. auth.role() deprecated usage
-  const hasAuthRoleDeprecated = /auth\.role\s*\(/.test(allContentJoined);
+  const hasAuthRoleDeprecated = /auth\.role\s*\(/.test(sqlContent);
   if (hasSupabase) {
     results.push({
       checkId: 'security-supabase-auth-role-deprecated',
       status: hasAuthRoleDeprecated ? 'fail' : 'pass',
       message: hasAuthRoleDeprecated
-        ? 'auth.role() detected — this is deprecated and breaks with anonymous sign-ins'
-        : 'auth.role() not detected — USING TO clause instead',
+        ? 'auth.role() detected: this is deprecated and breaks with anonymous sign-ins'
+        : 'auth.role() not detected: USING TO clause instead',
     });
   }
 
@@ -458,15 +603,16 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
         status: hasSecurityInvoker ? 'pass' : 'fail',
         message: hasSecurityInvoker
           ? 'Views use WITH (security_invoker = true)'
-          : 'Views found without security_invoker — they bypass RLS by default',
+          : 'Views found without security_invoker: they bypass RLS by default',
       });
     }
   }
 
   // 5. Storage RLS
   if (hasSupabase) {
-    const hasStorage = /storage|bucket/i.test(allContentJoined);
-    const hasStorageRls = /storage.*rls|bucket.*rls|storage.*policy|bucket.*policy|create\s+policy.*storage/i.test(allContentJoined);
+    // `storage` alone would match localStorage; look for Supabase Storage specifically
+    const hasStorage = /\.storage\s*\.from\(|storage\.buckets|storage\.objects/.test(allContentJoined);
+    const hasStorageRls = /create\s+policy[^;]*on\s+storage\.objects/i.test(sqlContent);
     if (hasStorage) {
       results.push({
         checkId: 'security-supabase-storage-rls',
@@ -486,7 +632,7 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
       results.push({
         checkId: 'security-supabase-missing-select-policy',
         status: 'warn',
-        message: `${createTableStatements.length} tables, ${selectPolicies.length} SELECT policies — some tables may lack SELECT access after RLS enablement`,
+        message: `${createTableStatements.length} tables, ${selectPolicies.length} SELECT policies: some tables may lack SELECT access after RLS enablement`,
       });
     } else if (createTableStatements.length > 0) {
       results.push({
@@ -497,25 +643,34 @@ async function runSecurityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     }
   }
 
+  // --- Firebase, MongoDB, Prisma, Convex, PocketBase, Appwrite, server drivers ---
+  results.push(...runOtherDatabaseChecks(ctx));
+
   return results;
 }
 
 async function runAiSafetyCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
 
-  const hasSystemPrompt = /system.*prompt|system_instruction|role.*system/i.test(allJoined);
-  const hasUserIsolation = /user.*message|user_input|userContent|USER_SAYS/i.test(allJoined);
+  // Don't penalize repos that never call an LLM
+  if (!usesLlmSdk(ctx)) {
+    results.push({ checkId: 'ai-not-detected', status: 'info', message: 'No LLM SDK usage detected: AI safety checks skipped' });
+    return results;
+  }
+
+  const code = ctx.codeJoined;
+
+  // `instructions:` is the AI SDK 7 / OpenAI Responses name for the system prompt
+  const hasSystemRole = /role:\s*['"](system|developer)['"]|\b(system|instructions):\s*[`'"\w]|systemInstruction|system_instruction/.test(code);
   results.push({
     checkId: 'ai-prompt-injection',
-    status: hasSystemPrompt && hasUserIsolation ? 'pass' : 'warn',
-    message: hasSystemPrompt && hasUserIsolation ? 'User input appears isolated from system prompts' : 'No clear separation between system prompts and user input — risk of prompt injection',
+    status: hasSystemRole ? 'pass' : 'warn',
+    message: hasSystemRole ? 'System prompt is passed separately from user messages' : 'No dedicated system prompt found: user input may be mixed into instructions',
   });
 
-  const hasExternalContent = /fetch\(|axios\.get|https:\/\/|http:\/\//.test(allJoined);
-  const hasSanitization = /sanitize|sanitizeInput|DOMPurify|stripHtml|escapeHtml|validator/i.test(allJoined);
-  if (hasExternalContent) {
+  const fetchesExternal = /\bfetch\(|axios\.(get|post)|cheerio|puppeteer|playwright|loadDocuments|WebBaseLoader/.test(code);
+  if (fetchesExternal) {
+    const hasSanitization = /sanitize|DOMPurify|stripHtml|escapeHtml|sanitize-html/i.test(code);
     results.push({
       checkId: 'ai-indirect-prompt-injection',
       status: hasSanitization ? 'pass' : 'warn',
@@ -523,122 +678,112 @@ async function runAiSafetyCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     });
   }
 
-  const hasJailbreakDetect = /jailbreak|harmful.*content|toxic|moderation/i.test(allJoined);
+  const hasJailbreakDetect = /jailbreak|moderations?\.create|guardrail|lakera|llama-?guard|prompt-?guard/i.test(code);
   results.push({
     checkId: 'ai-jailbreak-resistance',
     status: hasJailbreakDetect ? 'pass' : 'info',
-    message: hasJailbreakDetect ? 'Jailbreak detection patterns found' : 'No jailbreak resistance mechanisms detected',
+    message: hasJailbreakDetect ? 'Jailbreak/guardrail checks found' : 'No jailbreak resistance mechanisms detected',
   });
 
-  const hasToolPermissions = /tool|function|action|plugin.*permission|scoped/i.test(allJoined);
-  results.push({
-    checkId: 'ai-tool-permissions',
-    status: hasToolPermissions ? 'pass' : 'warn',
-    message: hasToolPermissions ? 'Tool/function permission patterns found' : 'No tool permission boundaries detected',
-  });
-
-  const hasMemoryMgmt = /memory|store|vector|embedding|recall/i.test(allJoined);
-  const hasMemoryValidation = /validate|sanitize|check|filter/i.test(allJoined);
-  if (hasMemoryMgmt) {
+  const usesTools = /\btools:\s*[[{]|tool_choice|toolChoice|\btool\(\{|function_declarations|bindTools\(/.test(code);
+  if (usesTools) {
+    const hasToolGating = /needsApproval|requireApproval|allowedTools|toolPermissions|humanInTheLoop|confirm(ation)?Required/i.test(code);
     results.push({
-      checkId: 'ai-memory-poisoning',
-      status: hasMemoryValidation ? 'pass' : 'warn',
-      message: hasMemoryValidation ? 'Memory input validation detected' : 'Memory/vector storage found but no input validation',
+      checkId: 'ai-tool-permissions',
+      status: hasToolGating ? 'pass' : 'warn',
+      message: hasToolGating ? 'Tool calls are gated by approvals or an allowlist' : 'LLM tools are enabled with no approval or allowlist: the model can call them freely',
+    });
+    results.push({
+      checkId: 'ai-function-schema-validation',
+      status: /inputSchema|parameters:\s*z\.|zodSchema|jsonSchema\(/.test(code) ? 'pass' : 'warn',
+      message: /inputSchema|parameters:\s*z\.|zodSchema|jsonSchema\(/.test(code) ? 'Tool inputs are schema-validated' : 'Tool definitions found without input schemas',
     });
   }
 
-  const hasHallucinationGuard = /citation|source|grounding|confidence|factual|reference/i.test(allJoined);
+  const hasVectorDb = /pinecone|weaviate|qdrant|chromadb|pgvector|vectorstore|VectorStore|\.similaritySearch\(|embeddings?\.create/i.test(code);
+  if (hasVectorDb) {
+    const hasMemoryValidation = /sanitize|safeParse|moderations?\.create/i.test(code);
+    results.push({
+      checkId: 'ai-memory-poisoning',
+      status: hasMemoryValidation ? 'pass' : 'warn',
+      message: hasMemoryValidation ? 'Content is validated before it reaches memory/vector storage' : 'Memory/vector storage found but no input validation',
+    });
+
+    const hasRagThreshold = /scoreThreshold|similarityThreshold|similarity_threshold|minScore|min_score|match_threshold/i.test(code);
+    results.push({
+      checkId: 'ai-rag-validation',
+      status: hasRagThreshold ? 'pass' : 'warn',
+      message: hasRagThreshold ? 'RAG retrieval uses a relevance threshold' : 'RAG retrieval has no relevance threshold: low-quality matches reach the prompt',
+    });
+
+    const hasTenantScoping = /namespace|tenant|filter:\s*\{[^}]*(user|org|tenant)/i.test(code);
+    results.push({
+      checkId: 'ai-vector-poisoning',
+      status: hasTenantScoping ? 'pass' : 'info',
+      message: hasTenantScoping ? 'Vector queries are scoped by namespace/tenant' : 'Vector queries are not visibly scoped per user or tenant',
+    });
+  }
+
+  const hasHallucinationGuard = /citation|grounding|groundedness|sources?:\s*\[/i.test(code);
   results.push({
     checkId: 'ai-hallucination-mitigation',
     status: hasHallucinationGuard ? 'pass' : 'info',
-    message: hasHallucinationGuard ? 'Hallucination mitigation patterns found' : 'No hallucination mitigation mechanisms detected',
+    message: hasHallucinationGuard ? 'Grounding/citation patterns found' : 'No hallucination mitigation mechanisms detected',
   });
 
-  const hasPiiMasking = /PII|pii|redact|mask.*email|mask.*phone|deidentify/i.test(allJoined);
+  const hasPiiMasking = /\bPII\b|redact|deidentify|presidio|mask(Email|Phone|Pii)/i.test(code);
   results.push({
     checkId: 'ai-pii-masking',
     status: hasPiiMasking ? 'pass' : 'warn',
-    message: hasPiiMasking ? 'PII masking/redaction detected' : 'No PII masking detected — sensitive user data may be exposed to AI providers',
+    message: hasPiiMasking ? 'PII masking/redaction detected' : 'No PII masking detected: sensitive user data may be exposed to AI providers',
   });
 
-  const hasOutputModeration = /moderation|moderate|content.*filter|flag|block.*output/i.test(allJoined);
+  const hasOutputModeration = /moderations?\.create|moderation|guardrail|content.?filter/i.test(code);
   results.push({
     checkId: 'ai-output-moderation',
     status: hasOutputModeration ? 'pass' : 'info',
     message: hasOutputModeration ? 'Output moderation detected' : 'No AI output moderation detected',
   });
 
-  const hasPromptLocking = /system.*instruction|system_prompt|prompt.*template|delimiter|separator/i.test(allJoined);
+  const hasPromptLocking = /system_prompt|systemPrompt|SYSTEM_PROMPT|PromptTemplate|<user_input>|<\/?user>/.test(code);
   results.push({
     checkId: 'ai-prompt-locking',
     status: hasPromptLocking ? 'pass' : 'warn',
     message: hasPromptLocking ? 'Prompt template with system/user separation detected' : 'No prompt locking mechanism detected',
   });
 
-  const hasStructuredOutput = /response_format|json_object|structured.*output|json.*mode/i.test(allJoined);
+  const hasStructuredOutput = /response_format|json_object|json_schema|generateObject|streamObject|withStructuredOutput|Output\.object|responseMimeType/.test(code);
   results.push({
     checkId: 'ai-json-enforcement',
     status: hasStructuredOutput ? 'pass' : 'info',
     message: hasStructuredOutput ? 'Structured output (JSON mode) detected' : 'No structured output enforcement detected',
   });
 
-  const hasModelPinning = /gpt-4-\d{4}|gpt-3\.5-turbo-\d{4}|claude-\d|claude-instant-\d|gemini-\d.*-\d{3}/i.test(allJoined);
-  results.push({
-    checkId: 'ai-model-pinning',
-    status: hasModelPinning ? 'pass' : 'warn',
-    message: hasModelPinning ? 'AI models are pinned to specific versions' : 'Models may use "latest" tag — risk of unexpected behavior changes',
-  });
+  const latestModel = findInCode(ctx, /['"][\w./-]*-latest['"]/);
+  results.push(latestModel
+    ? { checkId: 'ai-model-pinning', status: 'warn', message: 'Model referenced by a "-latest" alias: behavior can change under you', ...latestModel }
+    : { checkId: 'ai-model-pinning', status: 'pass', message: 'No floating "-latest" model aliases found' });
 
-  const hasTempConfig = /temperature|max_tokens|maxTokens/i.test(allJoined);
+  const hasTempConfig = /\btemperature\s*:/.test(code);
   results.push({
     checkId: 'ai-temperature-validation',
     status: hasTempConfig ? 'pass' : 'info',
-    message: hasTempConfig ? 'Temperature/token configuration found' : 'No temperature or token limit configuration detected',
+    message: hasTempConfig ? 'Temperature configuration found' : 'No explicit temperature configuration detected',
   });
 
-  const hasTokenLimits = /max_tokens|maxTokens|maxOutputTokens/i.test(allJoined);
+  const hasTokenLimits = /max_tokens|maxTokens|maxOutputTokens|max_completion_tokens|maxCompletionTokens/.test(code);
   results.push({
     checkId: 'ai-token-limits',
     status: hasTokenLimits ? 'pass' : 'warn',
-    message: hasTokenLimits ? 'Token limits configured' : 'No token limits found — unbounded usage may cause cost overruns',
+    message: hasTokenLimits ? 'Token limits configured' : 'No token limits found: unbounded usage may cause cost overruns',
   });
-
-  const hasRag = /rag|retrieval|vector.*store|embedding|similarity/i.test(allJoined);
-  const hasRagValidation = /relevance|score|threshold|filter|validate/i.test(allJoined);
-  if (hasRag) {
-    results.push({
-      checkId: 'ai-rag-validation',
-      status: hasRagValidation ? 'pass' : 'warn',
-      message: hasRagValidation ? 'RAG pipeline with validation detected' : 'RAG pipeline detected but no content validation',
-    });
-  }
-
-  const hasVectorDb = /vector|pinecone|weaviate|qdrant|chroma|pgvector/i.test(allJoined);
-  if (hasVectorDb) {
-    const hasVectorProtection = /auth|token|key|validate|sanitize/i.test(allJoined);
-    results.push({
-      checkId: 'ai-vector-poisoning',
-      status: hasVectorProtection ? 'pass' : 'warn',
-      message: hasVectorProtection ? 'Vector database access controls detected' : 'Vector database detected but no access controls found',
-    });
-  }
-
-  const hasFunctionSchema = /functions:|tools:|function_declarations|tool_choice/i.test(allJoined);
-  if (hasFunctionSchema) {
-    results.push({
-      checkId: 'ai-function-schema-validation',
-      status: 'pass',
-      message: 'Function/tool schemas detected',
-    });
-  }
 
   return results;
 }
 
 async function runRuntimeCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
 
   const hasPackageJson = ctx.files.get('package.json');
   let hasRetry = false;
@@ -658,7 +803,7 @@ async function runRuntimeCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   results.push({
     checkId: 'runtime-retry-logic',
     status: hasRetry ? 'pass' : 'warn',
-    message: hasRetry ? 'Retry logic patterns detected' : 'No retry logic detected — transient failures may cause errors',
+    message: hasRetry ? 'Retry logic patterns detected' : 'No retry logic detected: transient failures may cause errors',
   });
 
   hasTimeout = hasTimeout || /timeout|AbortSignal|signal:|abort/.test(allJoined);
@@ -675,11 +820,11 @@ async function runRuntimeCheck(ctx: ScanCtx): Promise<CheckResult[]> {
     message: hasAbort ? 'Abort controllers detected' : 'No AbortController usage detected',
   });
 
-  const hasLoopProtection = /maxIterations|max_turns|maxSteps|iterationLimit/i.test(allJoined);
+  const hasLoopProtection = /maxIterations|max_turns|maxSteps|iterationLimit|stopWhen|stepCountIs|isStepCount|recursionLimit/i.test(allJoined);
   results.push({
     checkId: 'runtime-infinite-loop',
     status: hasLoopProtection ? 'pass' : 'warn',
-    message: hasLoopProtection ? 'Iteration limits detected' : 'No infinite loop protection found — AI generation loops may run unbounded',
+    message: hasLoopProtection ? 'Iteration limits detected' : 'No infinite loop protection found: AI generation loops may run unbounded',
   });
 
   const hasTokenBudget = /token.*budget|token.*limit|max_tokens|cost.*limit|spend.*limit/i.test(allJoined);
@@ -715,14 +860,13 @@ async function runRuntimeCheck(ctx: ScanCtx): Promise<CheckResult[]> {
 
 async function runInfrastructureCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
 
   const hasDockerfile = ctx.allFilePaths.some(f => f.includes('Dockerfile') || f === 'docker-compose.yml' || f === 'docker-compose.yaml');
   results.push({
     checkId: 'infra-dockerfile',
     status: hasDockerfile ? 'pass' : 'info',
-    message: hasDockerfile ? 'Dockerfile found' : 'No Dockerfile found — container configuration recommended for production',
+    message: hasDockerfile ? 'Dockerfile found' : 'No Dockerfile found: container configuration recommended for production',
   });
 
   const hasHealthCheck = /\/health|\/ready|healthCheck|health_check|liveness|readiness/i.test(allJoined);
@@ -779,8 +923,7 @@ async function runInfrastructureCheck(ctx: ScanCtx): Promise<CheckResult[]> {
 
 async function runObservabilityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
   const hasPackageJson = ctx.files.get('package.json');
 
   let hasOtel = false;
@@ -845,8 +988,7 @@ async function runObservabilityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
 
 async function runPerformanceCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
   const hasPackageJson = ctx.files.get('package.json');
 
   let hasCodeSplitting = false;
@@ -861,7 +1003,7 @@ async function runPerformanceCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   results.push({
     checkId: 'perf-code-splitting',
     status: hasCodeSplitting ? 'pass' : 'info',
-    message: hasCodeSplitting ? 'Code splitting detected' : 'No code splitting detected — entire app may load at once',
+    message: hasCodeSplitting ? 'Code splitting detected' : 'No code splitting detected: entire app may load at once',
   });
 
   const hasLazyLoading = /lazy|loading="lazy"|loading='lazy'|IntersectionObserver/i.test(allJoined);
@@ -890,8 +1032,7 @@ async function runPerformanceCheck(ctx: ScanCtx): Promise<CheckResult[]> {
 
 async function runAccessibilityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
 
   const hasKeyboardSupport = /tabIndex|onKeyDown|onKeyPress|keyboard|focus/i.test(allJoined);
   results.push({
@@ -904,7 +1045,7 @@ async function runAccessibilityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   results.push({
     checkId: 'a11y-aria',
     status: hasAria ? 'pass' : 'warn',
-    message: hasAria ? 'ARIA attributes detected' : 'No ARIA attributes found — screen reader support may be limited',
+    message: hasAria ? 'ARIA attributes detected' : 'No ARIA attributes found: screen reader support may be limited',
   });
 
   const hasResponsive = /@media|grid|flex|responsive|container|min-width|max-width|clamp\(|rem/i.test(allJoined);
@@ -926,8 +1067,7 @@ async function runAccessibilityCheck(ctx: ScanCtx): Promise<CheckResult[]> {
 
 async function runComplianceCheck(ctx: ScanCtx): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
-  const allContent = [...ctx.files.values()].filter(Boolean) as string[];
-  const allJoined = allContent.join('\n');
+  const allJoined = nonDocJoined(ctx);
 
   const hasPrivacyPolicy = /privacy|privacy.*policy|data.*protection|cookie.*consent|cookieConsent/i.test(allJoined);
   results.push({
@@ -962,6 +1102,7 @@ const CATEGORY_RUNNERS: Record<string, (ctx: ScanCtx) => Promise<CheckResult[]>>
   performance: runPerformanceCheck,
   accessibility: runAccessibilityCheck,
   compliance: runComplianceCheck,
+  ui: async (ctx) => runUiChecks(ctx),
 };
 
 export async function scanGitHubRepo(
@@ -1010,7 +1151,9 @@ export async function scanGitHubRepo(
     const { files, paths, info } = await loadRepository(owner, repo, signal, token);
     stageIndex = 1;
     emitProgress();
-    ctx = { owner, repo, signal, token, files, allFilePaths: paths };
+    const codeFiles = [...files.keys()].filter(isCodeFile);
+    const codeJoined = codeFiles.map(f => files.get(f) ?? '').join('\n');
+    ctx = { owner, repo, signal, token, files, allFilePaths: paths, codeFiles, codeJoined };
   } catch (err: any) {
     return {
       id: crypto.randomUUID(),
@@ -1043,6 +1186,7 @@ export async function scanGitHubRepo(
       { cat: 'performance' as const, label: 'Performance', runner: CATEGORY_RUNNERS['performance'] },
       { cat: 'accessibility' as const, label: 'Accessibility', runner: CATEGORY_RUNNERS['accessibility'] },
       { cat: 'compliance' as const, label: 'Compliance', runner: CATEGORY_RUNNERS['compliance'] },
+      { cat: 'ui' as const, label: 'UI & Content', runner: CATEGORY_RUNNERS['ui'] },
     ];
 
     // Run all category checks in PARALLEL for max speed
