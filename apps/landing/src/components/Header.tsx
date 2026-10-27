@@ -91,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, onOpenSe
             <Icon name={THEME_ICON[theme]} size={17} />
           </button>
           <a
-            href="https://github.com/anomalyco/agent-preflight"
+            href="https://github.com/marsley01/agent-preflight"
             target="_blank"
             rel="noreferrer"
             className="flex h-9 w-9 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
@@ -129,9 +129,9 @@ export const Footer: React.FC = () => (
       <span>Preflight is open source under the MIT license.</span>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {[
-          ['GitHub', 'https://github.com/anomalyco/agent-preflight'],
-          ['Changelog', 'https://github.com/anomalyco/agent-preflight/blob/main/CHANGELOG.md'],
-          ['Security', 'https://github.com/anomalyco/agent-preflight/blob/main/SECURITY.md'],
+          ['GitHub', 'https://github.com/marsley01/agent-preflight'],
+          ['Changelog', 'https://github.com/marsley01/agent-preflight/blob/main/CHANGELOG.md'],
+          ['Security', 'https://github.com/marsley01/agent-preflight/blob/main/SECURITY.md'],
           ['npm', 'https://www.npmjs.com/package/@preflight-agent/cli'],
         ].map(([label, href]) => (
           <a key={label} href={href} target="_blank" rel="noreferrer" className="transition-colors hover:text-on-surface">

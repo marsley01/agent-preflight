@@ -33,7 +33,7 @@ All settings are environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `PREFLIGHT_API_KEY` | *(unset)* | Shared secret required as the `X-API-Key` header on `POST /v1/fix` and `POST /v1/refresh`. **If unset, those endpoints only accept requests from localhost.** Set it for any deployment reachable from other machines |
-| `ALLOWED_ORIGINS` | `http://localhost:5173,https://preflight-agent.vercel.app` | Comma-separated browser origins allowed by CORS |
+| `ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed by CORS. Add your deployed web UI origin here |
 | `GITHUB_TOKEN` | *(unset)* | Required for GitHub Security Advisories, because GitHub's GraphQL API rejects anonymous requests. Without it, that source is empty. A token with no scopes is enough |
 | `OPENAI_API_KEY` | *(unset)* | Enables `POST /v1/fix`. Without it, the endpoint returns a placeholder response |
 | `HOST` | `127.0.0.1` | Bind address for `python main.py` |

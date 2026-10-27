@@ -13,13 +13,13 @@
     "pre-deploy",
     "sarif"
   ],
-  "homepage": "https://github.com/anomalyco/agent-preflight/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/marsley01/agent-preflight/tree/main/packages/cli#readme",
   "bugs": {
-    "url": "https://github.com/anomalyco/agent-preflight/issues"
+    "url": "https://github.com/marsley01/agent-preflight/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anomalyco/agent-preflight.git",
+    "url": "git+https://github.com/marsley01/agent-preflight.git",
     "directory": "packages/cli"
   },
   "license": "MIT",

@@ -6,7 +6,7 @@ Agent Preflight is a security tool, so we hold it to a higher bar. Thank you for
 
 **Please don't open a public issue for security problems.**
 
-Report privately through GitHub: go to **[Security → Report a vulnerability](https://github.com/anomalyco/agent-preflight/security/advisories/new)**. Please include:
+Report privately through GitHub: go to **[Security → Report a vulnerability](https://github.com/marsley01/agent-preflight/security/advisories/new)**. Please include:
 
 - the affected component (CLI, web UI, vuln-engine or the Supabase schema) and version or commit
 - steps to reproduce, or a proof of concept
@@ -32,7 +32,7 @@ We'll keep you updated, credit you in the release notes if you'd like, and coord
 
 ### Out of scope
 
-- **False negatives**, meaning a vulnerable pattern the scanner doesn't detect. These are welcome as regular [issues](https://github.com/anomalyco/agent-preflight/issues). See [Known limits](docs/rules.md#known-limits).
+- **False negatives**, meaning a vulnerable pattern the scanner doesn't detect. These are welcome as regular [issues](https://github.com/marsley01/agent-preflight/issues). See [Known limits](docs/rules.md#known-limits).
 - Findings in projects you scanned. Report those to that project.
 - Missing headers on preview deployments, or anything that needs a compromised machine
 

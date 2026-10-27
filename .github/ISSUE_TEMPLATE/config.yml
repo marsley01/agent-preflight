@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://github.com/anomalyco/agent-preflight#readme
+    url: https://github.com/marsley01/agent-preflight#readme
     about: Check the documentation before opening an issue
   - name: Security
-    url: https://github.com/anomalyco/agent-preflight/security/policy
+    url: https://github.com/marsley01/agent-preflight/security/policy
     about: Report security vulnerabilities here

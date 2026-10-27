@@ -271,7 +271,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
             driver: {
               name: "Preflight Scanner",
               version: "0.1.0",
-              informationUri: "https://github.com/anomalyco/agent-preflight"
+              informationUri: "https://github.com/marsley01/agent-preflight"
             }
           },
           results: resultItems.map((r) => ({

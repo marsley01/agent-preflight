@@ -5,8 +5,8 @@ Catch the bugs AI agents introduce before they hit production.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@preflight-agent/cli)](https://npmjs.com/package/@preflight-agent/cli)
-[![CI](https://github.com/anomalyco/agent-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/anomalyco/agent-preflight/actions/workflows/ci.yml)
-[![Snyk](https://img.shields.io/badge/security-Snyk-brightgreen)](https://github.com/anomalyco/agent-preflight/actions/workflows/snyk-security.yml)
+[![CI](https://github.com/marsley01/agent-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/marsley01/agent-preflight/actions/workflows/ci.yml)
+[![Snyk](https://img.shields.io/badge/security-Snyk-brightgreen)](https://github.com/marsley01/agent-preflight/actions/workflows/snyk-security.yml)
 
 ---
 
@@ -128,11 +128,7 @@ Findings show up inline on the PR via Code Scanning. See [preflight-scan.yml](.g
 
 ## Web UI
 
-Scan public GitHub repos without installing anything:
-
-👉 **[preflight-agent.vercel.app](https://preflight-agent.vercel.app)**
-
-Paste a GitHub repo URL, get an instant scan report in your browser. The scan runs entirely client-side via the GitHub API — no backend involved.
+Scan public GitHub repos in the browser, without installing anything: paste a repo URL and get a report with ready-to-paste fixes. The scan runs entirely client-side via the GitHub API, with no backend. Run it locally with `npm run dev`, or see [apps/landing](apps/landing/README.md) for deploying your own.
 
 ## Built for vibe coders
 

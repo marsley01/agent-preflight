@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anomalyco/agent-preflight.git"
+    "url": "git+https://github.com/marsley01/agent-preflight.git"
   },
   "bugs": {
-    "url": "https://github.com/anomalyco/agent-preflight/issues"
+    "url": "https://github.com/marsley01/agent-preflight/issues"
   },
-  "homepage": "https://github.com/anomalyco/agent-preflight#readme",
+  "homepage": "https://github.com/marsley01/agent-preflight#readme",
   "license": "MIT"
 }

@@ -24,7 +24,7 @@ agent-preflight/
 ## Development Setup
 
 ```bash
-git clone https://github.com/anomalyco/agent-preflight.git
+git clone https://github.com/marsley01/agent-preflight.git
 cd agent-preflight/packages/cli
 npm ci
 npm test                       # build + run the test suite

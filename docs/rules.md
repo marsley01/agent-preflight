@@ -244,4 +244,4 @@ Things that make an app look unfinished, break on phones, or shut out keyboard a
 This is a fast pattern-based scanner. It is not a full data-flow analyzer, so:
 
 - **It can miss things.** It doesn't follow values across files, and it can't know that a helper like `requireAdmin()` does auth unless the name matches a known pattern. A clean report is not a security audit.
-- **It can be wrong.** When a finding doesn't apply, add `// preflight-ignore: <reason>` so the reason sits in code review. If a rule is wrong often, please [open an issue](https://github.com/anomalyco/agent-preflight/issues) with a minimal example.
+- **It can be wrong.** When a finding doesn't apply, add `// preflight-ignore: <reason>` so the reason sits in code review. If a rule is wrong often, please [open an issue](https://github.com/marsley01/agent-preflight/issues) with a minimal example.

@@ -20,7 +20,7 @@ preflight scan
 
 Requires Node.js 18 or later.
 
-**Upgrading from 0.1.x?** Nothing to change: `scan`, `--json`, `--strict` and `--only` behave as before. Expect more findings, since 0.2 catches far more real problems (and actually scans on Windows). See the [changelog](https://github.com/anomalyco/agent-preflight/blob/main/CHANGELOG.md).
+**Upgrading from 0.1.x?** Nothing to change: `scan`, `--json`, `--strict` and `--only` behave as before. Expect more findings, since 0.2 catches far more real problems (and actually scans on Windows). See the [changelog](https://github.com/marsley01/agent-preflight/blob/main/CHANGELOG.md).
 
 ## Usage
 
@@ -70,7 +70,7 @@ Exit codes: `0` ok, `1` findings exceeded `--fail-on` / `--strict`, `2` the scan
 
 Categories that don't apply to your stack (for example, Payments with no payment provider) are reported as skipped and don't affect the score.
 
-Full rule list with severities and fixes: **[docs/rules.md](https://github.com/anomalyco/agent-preflight/blob/main/docs/rules.md)**.
+Full rule list with severities and fixes: **[docs/rules.md](https://github.com/marsley01/agent-preflight/blob/main/docs/rules.md)**.
 
 ## Example output
 
@@ -143,7 +143,7 @@ jobs:
       - run: npx -y @preflight-agent/cli scan --fail-on high
 ```
 
-See [preflight-scan.yml](https://github.com/anomalyco/agent-preflight/blob/main/.github/workflows/preflight-scan.yml) for a version that also posts a PR comment.
+See [preflight-scan.yml](https://github.com/marsley01/agent-preflight/blob/main/.github/workflows/preflight-scan.yml) for a version that also posts a PR comment.
 
 ## Programmatic API
 
@@ -169,7 +169,7 @@ preflight scan --json | jq '[.[].checks[] | select(.status == "fail")] | length'
 
 ## Privacy
 
-Your code never leaves your machine. The only network call is the dependency check, which sends package **names and versions** to OSV.dev; `--offline` turns it off. Details: [SECURITY.md](https://github.com/anomalyco/agent-preflight/blob/main/SECURITY.md#data-sent-over-the-network).
+Your code never leaves your machine. The only network call is the dependency check, which sends package **names and versions** to OSV.dev; `--offline` turns it off. Details: [SECURITY.md](https://github.com/marsley01/agent-preflight/blob/main/SECURITY.md#data-sent-over-the-network).
 
 ## License
 

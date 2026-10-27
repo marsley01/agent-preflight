@@ -21,7 +21,7 @@ log = logging.getLogger("vuln-engine")
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
-        "ALLOWED_ORIGINS", "http://localhost:5173,https://preflight-agent.vercel.app"
+        "ALLOWED_ORIGINS", "http://localhost:5173"
     ).split(",")
     if o.strip()
 ]

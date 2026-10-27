@@ -125,7 +125,7 @@ export function renderSarif(report: ScanReport) {
         driver: {
           name: 'agent-preflight',
           version: report.tool.version,
-          informationUri: 'https://github.com/anomalyco/agent-preflight',
+          informationUri: 'https://github.com/marsley01/agent-preflight',
           rules: ruleIds.map((id) => {
             const first = findings.find((f) => f.id === id)!;
             const worst = findings.filter((f) => f.id === id).sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity])[0];

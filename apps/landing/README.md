@@ -1,6 +1,6 @@
 # Web UI (`apps/landing`)
 
-The browser version of Agent Preflight at **[preflight-agent.vercel.app](https://preflight-agent.vercel.app)**. Paste a public GitHub repo and get a production-readiness report across security, AI safety, runtime, infrastructure, observability, performance, accessibility and compliance.
+The browser version of Agent Preflight, deployed on Vercel from this repo. Paste a public GitHub repo and get a production-readiness report across security, AI safety, runtime, infrastructure, observability, performance, accessibility and compliance.
 
 The scan runs **entirely in your browser**. Files are fetched straight from GitHub, and there is no Agent Preflight backend.
 

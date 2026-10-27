@@ -200,7 +200,7 @@ function SuppressHelp({ onCopy }: { onCopy: (text: string, msg: string) => void 
         <h2 className="font-headline-sm text-on-surface">Silencing a finding in the CLI</h2>
         <p className="mt-1 font-body-sm text-on-surface-variant">
           Write the reason down so it shows up in code review. Full list of CLI rule IDs in the{' '}
-          <a href="https://github.com/anomalyco/agent-preflight/blob/main/docs/rules.md" target="_blank" rel="noreferrer" className="text-on-surface underline underline-offset-2">
+          <a href="https://github.com/marsley01/agent-preflight/blob/main/docs/rules.md" target="_blank" rel="noreferrer" className="text-on-surface underline underline-offset-2">
             rule reference
           </a>
           .
