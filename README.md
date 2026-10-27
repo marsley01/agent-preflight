@@ -128,6 +128,8 @@ Findings show up inline on the PR via Code Scanning. See [preflight-scan.yml](.g
 
 ## Web UI
 
+👉 **[Open Preflight](https://agent-preflight-mashs-projects-01ac6ca6.vercel.app)**
+
 Scan public GitHub repos in the browser, without installing anything: paste a repo URL and get a report with ready-to-paste fixes. The scan runs entirely client-side via the GitHub API, with no backend. Run it locally with `npm run dev`, or see [apps/landing](apps/landing/README.md) for deploying your own.
 
 ## Built for vibe coders
