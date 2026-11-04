@@ -74,6 +74,32 @@ const PLACEHOLDER = /lorem ipsum|dolor sit amet|\bYour Company\b|\bCompany Name\
 const LOCALHOST = /['"`]https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/;
 const GENERIC_FONTS = new Set(['sans-serif', 'serif', 'monospace', 'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace', 'inherit', 'initial', 'cursive', 'emoji', '-apple-system', 'blinkmacsystemfont', 'segoe ui', 'apple color emoji', 'segoe ui emoji', 'helvetica', 'arial', 'var']);
 
+const ENV_READ = /process\??\.env|import\.meta\.env|\bDeno\.env|\bBun\.env/;
+
+/**
+ * True when the value on `line` (1-based) is only a fallback for an environment variable:
+ * `process.env.URL ?? "http://localhost"`, `env.URL || ...`, a ternary on process.env (possibly
+ * spread over several lines), or an `if (process.env...)` guard just above. Unconditional uses
+ * such as `fetch("http://localhost:3000/api")` stay flagged.
+ */
+export function isEnvFallback(f: SourceFile, line: number): boolean {
+  // Walk back to the start of the expression, only while it visibly continues across lines,
+  // so semicolon-free code doesn't merge in an unrelated statement above.
+  let start = line - 1;
+  while (start > 0 && line - start < 15) {
+    const prev = f.lines[start - 1].replace(/\/\/.*$/, '').trimEnd();
+    const cur = f.lines[start].trimStart();
+    const continues = /(\?\?|\|\||&&|[?:=(,+])$/.test(prev) || /^(\?\?|\|\||&&|[?:.])/.test(cur);
+    if (!continues || /[;{}]$/.test(prev)) break;
+    start--;
+  }
+  const statement = f.lines.slice(start, line).join('\n');
+  if (ENV_READ.test(statement) && /\?\?|\|\||\?[\s\S]*:/.test(statement)) return true;
+  // `if (process.env.NODE_ENV !== 'production') { url = 'http://localhost...' }`
+  const above = f.lines.slice(Math.max(0, start - 3), start).join('\n');
+  return /\bif\s*\([^)]*(process\??\.env|import\.meta\.env)/.test(above);
+}
+
 function htmlEntries(ctx: ProjectContext): SourceFile[] {
   return ctx.find(/(^|\/)(index|app)\.html$/).filter((f) => !/(^|\/)(public|static|dist|build)\//.test(f.rel) || /^(public\/)?index\.html$/.test(f.rel));
 }
@@ -104,7 +130,8 @@ export function runUiChecks(ctx: ProjectContext): CheckResult[] {
 
   // Tool/test configs (playwright, vite dev proxy, ...) and scripts point at localhost on purpose.
   const appCode = ctx.code.filter((f) => !/(^|\/)[\w.-]+\.config\.[cm]?[jt]s$|(^|\/)(scripts|tools|e2e)\//.test(f.rel));
-  const localhost = ctx.grep(appCode, LOCALHOST, { literals: true }).filter((m) => !/process\.env|import\.meta\.env|\?\?|\|\||emulator/i.test(m.text));
+  const localhost = ctx.grep(appCode, LOCALHOST, { literals: true })
+    .filter((m) => !/emulator/i.test(m.text) && !isEnvFallback(ctx.files.get(m.file)!, m.line));
   results.push(...capped('content/localhost-url', 'medium', 'Hardcoded localhost URL will break in production', 'Read the base URL from an environment variable, or use a relative path like "/api/...".', localhost.map((m) => ({ file: m.file, line: m.line, snippet: m.text }))));
 
   const debuggers = ctx.grep(ctx.code, /^\s*debugger\s*;?\s*$/);

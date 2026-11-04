@@ -101,7 +101,8 @@ test('database: per-table RLS, permissive policies, views', () => {
   assert.ok(fails.some((f) => f.id === 'db/rls-enabled' && f.message.includes('todos')), 'todos lacks RLS');
   assert.ok(!fails.some((f) => f.id === 'db/rls-enabled' && f.message.includes('profiles')), 'profiles has RLS');
   assert.ok(ids(fails).includes('db/permissive-policy'));
-  assert.ok(ids(fails).includes('db/update-with-check'));
+  // No WITH CHECK means Postgres reuses USING: not a finding of its own (using (true) is caught above).
+  assert.ok(!ids(fails).includes('db/update-with-check'));
   assert.ok(ids(fails).includes('db/view-security-invoker'));
 });
 

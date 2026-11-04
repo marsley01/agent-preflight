@@ -8,6 +8,12 @@ const SERVER_DRIVERS = /^(pg|pg-promise|mysql|mysql2|postgres|@neondatabase\/ser
 const IMPORT_FROM = /(?:import\s[^'"]*from\s*|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g;
 const LOCAL_HOST = /localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal/;
 
+/** 1-based line of the first match in a file (undefined if none). */
+function lineOf(f: { lines: string[] }, re: RegExp): number | undefined {
+  const i = f.lines.findIndex((l) => re.test(l));
+  return i >= 0 ? i + 1 : undefined;
+}
+
 function firebaseChecks(ctx: ProjectContext): CheckResult[] {
   const usesFirebase = ctx.hasDependency('firebase', 'firebase-admin') || ctx.exists('firebase.json');
   const rulesFiles = ctx.find(/(^|\/)[\w.-]*\.rules$/);
@@ -91,7 +97,7 @@ function prismaChecks(ctx: ProjectContext): CheckResult[] {
   const perRequest = findRouteFiles(ctx).filter((f) => /new\s+PrismaClient\s*\(/.test(f.content) && !/globalThis|global\.prisma|globalForPrisma/.test(f.content));
   for (const f of perRequest.slice(0, 5)) {
     results.push(warn('db/client-per-request', 'medium', 'New PrismaClient in a route file: each serverless instance opens its own pool and exhausts database connections', {
-      file: f.rel, fix: 'Create one client in lib/prisma.ts (cached on globalThis in development) and import it everywhere.',
+      file: f.rel, line: lineOf(f, /new\s+PrismaClient\s*\(/), fix: 'Create one client in lib/prisma.ts (cached on globalThis in development) and import it everywhere.',
     }));
   }
   return results;
@@ -104,7 +110,7 @@ function convexChecks(ctx: ProjectContext): CheckResult[] {
     .filter((f) => !/getUserIdentity\s*\(|getAuthUserId\s*\(|requireUser|requireAuth/.test(f.content))
     .slice(0, 5)
     .map((f) => warn('db/convex-public-mutation', 'medium', 'Convex mutation/action never checks who is calling: anyone can invoke it from the browser', {
-      file: f.rel, fix: 'Start each handler with `const identity = await ctx.auth.getUserIdentity(); if (!identity) throw new Error("Unauthorized");`, or make it an internalMutation.',
+      file: f.rel, line: lineOf(f, /=\s*(mutation|action)\s*\(/), fix: 'Start each handler with `const identity = await ctx.auth.getUserIdentity(); if (!identity) throw new Error("Unauthorized");`, or make it an internalMutation.',
     }));
 }
 

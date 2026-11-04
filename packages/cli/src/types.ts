@@ -28,6 +28,8 @@ export interface CheckResult {
   snippet?: string;
   /** How to fix it */
   fix?: string;
+  /** Other places the identical finding appears (e.g. the same policy in schema.sql and a migration) */
+  also?: Array<{ file: string; line?: number }>;
 }
 
 /** A named category containing a set of check results. */
@@ -48,7 +50,7 @@ export interface Category {
   run: (ctx: ProjectContext, opts: CheckOptions) => CheckResult[] | Promise<CheckResult[]>;
 }
 
-type Extra = Pick<CheckResult, 'file' | 'line' | 'snippet' | 'fix'>;
+type Extra = Pick<CheckResult, 'file' | 'line' | 'snippet' | 'fix' | 'also'>;
 
 export const pass = (id: string, message: string, extra: Extra = {}): CheckResult =>
   ({ id, status: 'pass', severity: 'info', message, ...extra });

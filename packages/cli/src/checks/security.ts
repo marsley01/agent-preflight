@@ -30,7 +30,16 @@ const PUBLIC_SECRET_NAME = /(?<![A-Za-z0-9])(NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_
 const PLACEHOLDER = /x{4,}|your[_-]|example|placeholder|changeme|<[^>]+>|\.\.\.|dummy|fake|redacted|\*{3,}/i;
 
 /** Env files that are meant to be committed as documentation. */
-const ENV_TEMPLATE = /\.env\.(example|sample|template|defaults|dist)$/;
+const TEMPLATE_PART = /(^|[./])(example|sample|template|tmpl|tpl|defaults|dist)(\.|$)/i;
+
+/**
+ * Env files meant to be committed as documentation: `.env.example`, `.env.local.example`,
+ * `.env.sample`, `prod.env.template`, ... They are still scanned for real secret values.
+ */
+export function isEnvTemplate(file: string): boolean {
+  const name = file.split('/').pop()!;
+  return /(^|[./])env([./]|$)/.test(name) && TEMPLATE_PART.test(name);
+}
 
 function redact(text: string, secret: string): string {
   return text.replace(secret, `${secret.slice(0, 6)}${'*'.repeat(8)}`);
@@ -50,7 +59,7 @@ function scanSecrets(ctx: ProjectContext): CheckResult[] {
   // Real local .env files hold real secrets by design; whether they're *committed* is checked separately.
   const candidates: SourceFile[] = [...ctx.files.values()].filter((f) => {
     const name = f.rel.split('/').pop()!;
-    if (name.startsWith('.env') && !ENV_TEMPLATE.test(name)) return false;
+    if (name.startsWith('.env') && !isEnvTemplate(name)) return false;
     if (/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(f.rel)) return false;
     return true;
   });
@@ -129,7 +138,7 @@ export function runSecurityChecks(ctx: ProjectContext): CheckResult[] {
 
   // --- .env hygiene ---
   const trackedEnv = (ctx.gitTracked('.env', '.env.*', '*/.env', '*/.env.*') ?? [])
-    .filter((f) => !ENV_TEMPLATE.test(f));
+    .filter((f) => !isEnvTemplate(f));
   if (trackedEnv.length > 0) {
     for (const f of trackedEnv) {
       results.push(fail('secrets/env-committed', 'critical', `${f} is committed to git — every secret in it is leaked`, {
@@ -153,7 +162,7 @@ export function runSecurityChecks(ctx: ProjectContext): CheckResult[] {
     }));
   }
 
-  if (ctx.allPaths.some((p) => ENV_TEMPLATE.test(p))) {
+  if (ctx.allPaths.some((p) => isEnvTemplate(p))) {
     results.push(pass('secrets/env-example', '.env.example exists'));
   } else {
     results.push(warn('secrets/env-example', 'low', 'No .env.example — collaborators won\'t know what vars to set'));

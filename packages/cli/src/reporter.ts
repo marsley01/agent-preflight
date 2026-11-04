@@ -9,8 +9,10 @@ function sortChecks(checks: CheckResult[]): CheckResult[] {
   return [...checks].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || SEV_RANK[a.severity] - SEV_RANK[b.severity]);
 }
 
+/** `file:line`, plus every other place an identical finding was found. */
 function location(c: CheckResult): string {
-  return c.file ? `${c.file}${c.line ? `:${c.line}` : ''}` : '';
+  if (!c.file) return '';
+  return [{ file: c.file, line: c.line }, ...(c.also ?? [])].map((l) => `${l.file}${l.line ? `:${l.line}` : ''}`).join(', ');
 }
 
 /** Map a check status to its corresponding icon. */
@@ -149,6 +151,14 @@ export function renderSarif(report: ScanReport) {
             ...(f.line ? { region: { startLine: f.line } } : {}),
           },
         }],
+        ...(f.also?.length
+          ? {
+            relatedLocations: f.also.map((l, i) => ({
+              id: i + 1,
+              physicalLocation: { artifactLocation: { uri: l.file }, ...(l.line ? { region: { startLine: l.line } } : {}) },
+            })),
+          }
+          : {}),
       })),
     }],
   };
