@@ -1,6 +1,6 @@
 {
   "name": "@preflight-agent/cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pre-deploy security checklist CLI for vibe coders — secrets, RLS, auth, injection, dependency CVEs",
   "keywords": [
     "security",

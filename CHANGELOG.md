@@ -2,7 +2,48 @@
 
 All notable changes to `@preflight-agent/cli` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). While the version is below 1.0, minor releases may include breaking changes, and they are called out below.
 
-## 0.2.0 — Unreleased
+## 0.2.1 — Unreleased
+
+Accuracy fixes from scanning real Next.js + Supabase / Stripe starters, plus database coverage for any Postgres backend and ORM. Rule details: [docs/rules.md](docs/rules.md).
+
+### Changed (rule IDs)
+
+0.2.0 was only published under the `next` tag, so these renames affect very few users. Update any `preflight-ignore` comments or SARIF filters that use the old IDs.
+
+- `db/prisma-hardcoded-url` is now **`db/hardcoded-url`**, and also covers `drizzle.config.*`, `knexfile.*`, `kysely.config.*`, `ormconfig.*` and `data-source.*`.
+- `db/client-per-request` is now **`db/pool-per-request`**, and also covers `pg`, `postgres()`, `drizzle(url)`, Kysely and Knex.
+- **`db/update-with-check` changed meaning.** A policy *without* WITH CHECK is no longer flagged, because Postgres reuses USING. Only a WITH CHECK that is explicitly looser than USING is flagged (e.g. `with check (true)`).
+
+### Added
+
+- **Stack detection.** The report starts with `Detected: Next.js · Drizzle · Neon Postgres`, worked out from dependencies, config files and env templates. Fix hints use the detected platform: `auth.uid()` for Supabase, `auth.user_id()` and Drizzle's `crudPolicy` for Neon, a session-setting predicate for plain Postgres.
+- **Postgres beyond Supabase.** Neon (including the Data API), Vercel Postgres, Railway, AWS RDS and self-hosted, with Drizzle, Prisma, Kysely, Knex, TypeORM, Sequelize, postgres.js and pg.
+- **Tables from ORMs.** Drizzle `pgTable()` definitions and Prisma models are checked alongside SQL migrations. Drizzle RLS is recognised (`pgTable.withRLS`, `pgPolicy`, `crudPolicy`, `.link()`, `.enableRLS()`). Missing RLS is critical only when browsers can reach the database (Supabase, Neon Data API, PostgREST, Hasura); server-only apps get an informational note.
+- **New rules:**
+  - `db/destructive-script`: `prisma db push --accept-data-loss`, `prisma migrate reset`, `drizzle-kit push --force` and similar in build, install, start or deploy scripts, deploy configs, or deploying CI workflows.
+  - `db/owner-role`: connecting as `postgres`, `neondb_owner` or another owner role.
+  - `injection/sql-raw-variable`: Drizzle / Kysely `sql.raw()` with a variable.
+- **Sleeker terminal output.**
+  - Categories that don't apply collapse into one "Skipped" line.
+  - Passing checks are summarised per category.
+  - Identical findings in several files show once with every location.
+  - `-v` shows everything. `--format json` and SARIF are unchanged apart from the new rules.
+- **Database findings show `file:line`.** A statement repeated in `schema.sql` and a migration is reported once, listing every location (new `also` field; SARIF `relatedLocations`).
+
+### Fixed (false positives)
+
+- **Env templates:** `.env.local.example`, `.env.sample`, `*.env.template` and similar were reported as committed secrets. They are now treated like `.env.example`, and only flagged when they hold a real secret value.
+- **Localhost fallbacks:** a localhost URL used as a fallback after an env var (`??`, `||`, a multi-line ternary, an `if (process.env...)` guard) is no longer flagged. CLIs run from `package.json` scripts are no longer flagged either.
+- **Supabase SSR cookies:** `cookies.set(name, value, options)` passes through library-controlled options, so it is no longer reported as missing `httpOnly`.
+- **Public analytics tokens:** `NEXT_PUBLIC_MIXPANEL_TOKEN` and similar map/analytics tokens are public by design and no longer flagged.
+- **Provider objects in scripts:** a Stripe price object's `unit_amount` in a sync script is no longer treated as a client-supplied amount.
+- **Supabase demo key:** the public `supabase start` demo service_role key is a medium warning, not a critical leak.
+
+### Fixed (missed findings)
+
+- `secrets/db-url-password` ignored real hosts whose name starts with `db.` (for example `db.prod.company.net`).
+
+## 0.2.0
 
 A rewrite of the scanner focused on accuracy and CI use. Rule-by-rule details: [docs/rules.md](docs/rules.md).
 
