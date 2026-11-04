@@ -8,6 +8,9 @@ Catch the bugs AI agents introduce before they hit production.
 [![CI](https://github.com/marsley01/agent-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/marsley01/agent-preflight/actions/workflows/ci.yml)
 [![Snyk](https://img.shields.io/badge/security-Snyk-brightgreen)](https://github.com/marsley01/agent-preflight/actions/workflows/snyk-security.yml)
 
+<!-- TODO: record the demo and save it as assets/demo.gif -->
+<p align="center"><img src="assets/demo.gif" alt="preflight scan running in a terminal" width="720"></p>
+
 ---
 
 ## What it does
@@ -21,7 +24,7 @@ code — but they consistently miss the same things:
 - Missing auth guards on protected routes
 - Accepting unvalidated input on API routes
 
-`agent-preflight scan` catches all of this before you deploy.
+`npx @preflight-agent/cli scan` (or `preflight scan` once installed globally) catches all of this before you deploy.
 
 ---
 
@@ -157,4 +160,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-MIT © Anomaly Co.
+MIT © Marsley Mash
