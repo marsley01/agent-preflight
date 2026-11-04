@@ -15,6 +15,37 @@ function location(c: CheckResult): string {
   return [{ file: c.file, line: c.line }, ...(c.also ?? [])].map((l) => `${l.file}${l.line ? `:${l.line}` : ''}`).join(', ');
 }
 
+/** Same as location(), but long lists are cut to the first few for the default terminal view. */
+function shortLocation(c: CheckResult, max = 3): string {
+  if (!c.file) return '';
+  const all = [{ file: c.file, line: c.line }, ...(c.also ?? [])].map((l) => `${l.file}${l.line ? `:${l.line}` : ''}`);
+  return all.length > max ? `${all.slice(0, max).join(', ')} +${all.length - max} more` : all.join(', ');
+}
+
+/** A category whose only result is "not applicable" (no payment SDK, no GraphQL server, ...). */
+function notApplicable(c: { checks: CheckResult[] }): boolean {
+  return c.checks.length > 0 && c.checks.every((x) => x.status === 'info') && c.checks.some((x) => /\/not-applicable$/.test(x.id));
+}
+
+/**
+ * Terminal-only: findings that are identical except for where they are (same rule, status,
+ * severity and message) become one line listing every location. JSON and SARIF keep them separate.
+ */
+function mergeIdentical(checks: CheckResult[]): CheckResult[] {
+  const merged = new Map<string, CheckResult>();
+  for (const c of checks) {
+    if (!c.file) {
+      merged.set(`${merged.size}`, c);
+      continue;
+    }
+    const key = [c.id, c.status, c.severity, c.message].join('\u0000');
+    const prev = merged.get(key);
+    if (!prev) merged.set(key, { ...c, also: [...(c.also ?? [])] });
+    else prev.also!.push({ file: c.file, line: c.line }, ...(c.also ?? []));
+  }
+  return [...merged.values()];
+}
+
 /** Map a check status to its corresponding icon. */
 function icon(status: CheckResult['status']) {
   if (status === 'pass') return chalk.green('\u2705');
@@ -41,17 +72,30 @@ export function renderReport(report: ScanReport, opts: { verbose?: boolean } = {
   const out: string[] = [''];
   out.push(chalk.bold(`\u{1F6EB} Agent Preflight v${report.tool.version} \u2014 Pre-Deploy Scan`));
   out.push(chalk.dim(`Scanning: ${report.root}`));
+  if (report.stack) out.push(chalk.dim(`Detected: ${report.stack}`));
   out.push('');
 
-  for (const category of report.categories) {
+  // Categories that don't apply to this project collapse into one line.
+  const skipped = report.categories.filter(notApplicable);
+  for (const category of report.categories.filter((c) => !notApplicable(c))) {
     out.push(chalk.bold(`  ${category.name}`));
-    for (const c of sortChecks(category.checks)) {
-      const loc = location(c) ? chalk.dim(` (${location(c)})`) : '';
+    const checks = sortChecks(category.checks);
+    const passes = checks.filter((c) => c.status === 'pass');
+    for (const c of opts.verbose ? checks : mergeIdentical(checks.filter((c) => c.status !== 'pass'))) {
+      const locs = opts.verbose ? location(c) : shortLocation(c);
+      const loc = locs ? chalk.dim(` (${locs})`) : '';
       const msg = c.status === 'info' ? chalk.dim(c.message) : c.message;
       out.push(`  ${icon(c.status)}  ${sevTag(c)}${msg}${loc}`);
       if (opts.verbose && c.snippet) out.push(chalk.dim(`        ${c.snippet}`));
       if ((c.status === 'fail' || c.status === 'warn') && c.fix) out.push(chalk.cyan(`        \u21B3 ${c.fix}`));
     }
+    if (!opts.verbose && passes.length > 0) {
+      out.push(`  ${icon('pass')}  ${passes.length === 1 ? passes[0].message : chalk.dim(`${passes.length} checks passed`)}`);
+    }
+    out.push('');
+  }
+  if (skipped.length > 0) {
+    out.push(chalk.dim(`  Skipped ${skipped.length} ${skipped.length === 1 ? 'category' : 'categories'} not used by this project (${skipped.map((c) => c.name).join(', ')})`));
     out.push('');
   }
 

@@ -1,0 +1,11 @@
+{
+  "name": "crm",
+  "private": true,
+  "scripts": {
+    "build": "prisma migrate deploy && next build",
+    "postinstall": "prisma generate",
+    "db:reset": "prisma migrate reset"
+  },
+  "dependencies": { "next": "15.0.0", "react": "19.0.0", "@prisma/client": "^6.0.0", "kysely": "^0.27.0" },
+  "devDependencies": { "prisma": "^6.0.0" }
+}

@@ -1,0 +1,11 @@
+name: Deploy to production
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx prisma migrate reset --force
+      - run: npx vercel deploy --prod

@@ -97,7 +97,7 @@ Suppress a single finding with a `preflight-ignore` comment, or exclude paths wi
 | Dependencies | Known CVEs via OSV.dev (npm lockfiles and `requirements.txt`) with fixed versions, unpinned and git-sourced deps, suspicious install scripts |
 | Auth | Middleware, mutating routes without an auth check, auth secret documented |
 | API | Unvalidated request bodies, rate limiting, error details leaked to clients |
-| Database | Supabase/Postgres RLS and policies, Firebase open or test-mode rules, MongoDB injection, Prisma hardcoded URLs, Convex/PocketBase/Appwrite public writes, database drivers shipped to the browser, TLS turned off |
+| Database | RLS for every table in SQL, Drizzle or Prisma (critical only when the browser can reach the DB), destructive `prisma db push --accept-data-loss` / `drizzle-kit push --force` in build and deploy scripts, hardcoded connection strings, owner-role connections, pools created per request, Supabase/Postgres policies, Firebase open or test-mode rules, MongoDB injection, Prisma hardcoded URLs, Convex/PocketBase/Appwrite public writes, database drivers shipped to the browser, TLS turned off |
 | Payments | Webhook signature verification (Stripe, M-Pesa Daraja, Paystack, ...), idempotency, client-supplied prices |
 | Web | CSP, clickjacking, nosniff, HSTS, Referrer-Policy, production source maps, `httpOnly` session cookies |
 | AI / LLM | SDK keys in the browser, user input in system prompts, missing token limits, model output executed |
@@ -137,8 +137,20 @@ Scan public GitHub repos in the browser, without installing anything: paste a re
 
 ## Built for vibe coders
 
-Works with any Next.js, SvelteKit, Remix, or Express project.
-Understands Supabase, Stripe, M-Pesa Daraja, and Resend patterns.
+Preflight works out your stack before it judges it, and prints it at the top of every report:
+
+```
+Detected: Next.js · Drizzle · Neon Postgres · browser access via Neon Data API
+```
+
+| | Supported |
+|---|---|
+| Frameworks | Next.js, Remix, SvelteKit, Nuxt, Astro, Vite, Express, Hono, Fastify |
+| Databases | Supabase, Neon (incl. Data API), Vercel Postgres, Railway, AWS RDS, any Postgres; Firebase, MongoDB, Convex, PocketBase, Appwrite |
+| ORMs / drivers | Drizzle, Prisma, Kysely, Knex, TypeORM, Sequelize, postgres.js, node-postgres |
+| Payments | Stripe, M-Pesa Daraja, Paystack, Flutterwave, Lemon Squeezy, PayPal, Razorpay |
+
+Fix hints use your platform's own API: `auth.uid()` for Supabase, `auth.user_id()` and Drizzle's `crudPolicy` for Neon, a least-privilege role for plain Postgres. Row-Level Security is only critical when browsers can reach the database (Supabase, Neon Data API, PostgREST, Hasura); server-only apps aren't nagged about it.
 
 ---
 

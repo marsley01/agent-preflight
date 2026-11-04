@@ -74,7 +74,27 @@ const PLACEHOLDER = /lorem ipsum|dolor sit amet|\bYour Company\b|\bCompany Name\
 const LOCALHOST = /['"`]https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/;
 const GENERIC_FONTS = new Set(['sans-serif', 'serif', 'monospace', 'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace', 'inherit', 'initial', 'cursive', 'emoji', '-apple-system', 'blinkmacsystemfont', 'segoe ui', 'apple color emoji', 'segoe ui emoji', 'helvetica', 'arial', 'var']);
 
-const ENV_READ = /process\??\.env|import\.meta\.env|\bDeno\.env|\bBun\.env/;
+/** Files executed directly by package.json scripts (`tsx lib/db/setup.ts`, `node scripts/seed.js`): CLIs, not app code. */
+function scriptEntryFiles(ctx: ProjectContext): Set<string> {
+  const files = new Set<string>();
+  for (const f of ctx.find(/(^|\/)package\.json$/)) {
+    const dir = f.rel.includes('/') ? f.rel.slice(0, f.rel.lastIndexOf('/') + 1) : '';
+    let scripts: Record<string, unknown> = {};
+    try {
+      scripts = JSON.parse(f.content).scripts ?? {};
+    } catch {
+      continue;
+    }
+    for (const cmd of Object.values(scripts)) {
+      for (const m of String(cmd).matchAll(/\b(?:tsx|ts-node|node|bun|vite-node)\s+(?:--?[\w-]+(?:=\S+)?\s+)*\.?\/?([\w./-]+\.[cm]?[jt]sx?)\b/g)) {
+        files.add(dir + m[1].replace(/^\.\//, ''));
+      }
+    }
+  }
+  return files;
+}
+
+const ENV_READ =/process\??\.env|import\.meta\.env|\bDeno\.env|\bBun\.env/;
 
 /**
  * True when the value on `line` (1-based) is only a fallback for an environment variable:
@@ -128,8 +148,10 @@ export function runUiChecks(ctx: ProjectContext): CheckResult[] {
   const deadLinks = ctx.grep(markup, /<a\b[^>]*\bhref\s*=\s*["'](#|javascript:void\(0\);?)?["']/, { literals: true });
   results.push(...capped('content/dead-link', 'low', 'Link goes nowhere (href="#")', 'Point it at a real page, or use a <button> if it triggers an action.', deadLinks.map((m) => ({ file: m.file, line: m.line, snippet: m.text }))));
 
-  // Tool/test configs (playwright, vite dev proxy, ...) and scripts point at localhost on purpose.
-  const appCode = ctx.code.filter((f) => !/(^|\/)[\w.-]+\.config\.[cm]?[jt]s$|(^|\/)(scripts|tools|e2e)\//.test(f.rel));
+  // Tool/test configs (playwright, vite dev proxy, ...), scripts, and files run directly from a
+  // package.json script (`"db:setup": "tsx lib/db/setup.ts"`) point at localhost on purpose.
+  const tooling = scriptEntryFiles(ctx);
+  const appCode = ctx.code.filter((f) => !/(^|\/)[\w.-]+\.config\.[cm]?[jt]s$|(^|\/)(scripts|tools|e2e)\//.test(f.rel) && !tooling.has(f.rel));
   const localhost = ctx.grep(appCode, LOCALHOST, { literals: true })
     .filter((m) => !/emulator/i.test(m.text) && !isEnvFallback(ctx.files.get(m.file)!, m.line));
   results.push(...capped('content/localhost-url', 'medium', 'Hardcoded localhost URL will break in production', 'Read the base URL from an environment variable, or use a relative path like "/api/...".', localhost.map((m) => ({ file: m.file, line: m.line, snippet: m.text }))));

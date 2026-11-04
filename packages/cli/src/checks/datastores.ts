@@ -1,7 +1,8 @@
 import type { ProjectContext } from '../context.js';
 import { type CheckResult, pass, fail, warn } from '../types.js';
 import { isClientFile } from './security.js';
-import { findRouteFiles } from './routes.js';
+import { runPostgresChecks } from './postgres.js';
+import { detectStack } from '../stack.js';
 
 /** Server-only database drivers. Browser SDKs (supabase-js, firebase, convex) are deliberately absent. */
 const SERVER_DRIVERS = /^(pg|pg-promise|mysql|mysql2|postgres|@neondatabase\/serverless|@planetscale\/database|@libsql\/client|@prisma\/client|mongoose|mongodb|ioredis|redis|firebase-admin|knex|kysely|sequelize|typeorm|better-sqlite3|drizzle-orm\/(node-postgres|mysql2|postgres-js|neon-http|libsql|better-sqlite3))$/;
@@ -85,24 +86,6 @@ function mongoChecks(ctx: ProjectContext): CheckResult[] {
   return results;
 }
 
-function prismaChecks(ctx: ProjectContext): CheckResult[] {
-  const schemas = ctx.find(/(^|\/)schema\.prisma$|(^|\/)prisma\/schema\/[\w-]+\.prisma$/);
-  if (schemas.length === 0 && !ctx.hasDependency('@prisma/client')) return [];
-  const results: CheckResult[] = [];
-  for (const m of ctx.grep(schemas, /^\s*(url|directUrl|shadowDatabaseUrl)\s*=\s*"/, { literals: true })) {
-    results.push(fail('db/prisma-hardcoded-url', 'high', 'Database URL hardcoded in the Prisma schema', {
-      file: m.file, line: m.line, fix: 'Use `url = env("DATABASE_URL")` and keep the value in .env.',
-    }));
-  }
-  const perRequest = findRouteFiles(ctx).filter((f) => /new\s+PrismaClient\s*\(/.test(f.content) && !/globalThis|global\.prisma|globalForPrisma/.test(f.content));
-  for (const f of perRequest.slice(0, 5)) {
-    results.push(warn('db/client-per-request', 'medium', 'New PrismaClient in a route file: each serverless instance opens its own pool and exhausts database connections', {
-      file: f.rel, line: lineOf(f, /new\s+PrismaClient\s*\(/), fix: 'Create one client in lib/prisma.ts (cached on globalThis in development) and import it everywhere.',
-    }));
-  }
-  return results;
-}
-
 function convexChecks(ctx: ProjectContext): CheckResult[] {
   if (!ctx.hasDependency('convex')) return [];
   const fns = ctx.code.filter((f) => /(^|\/)convex\/(?!_generated\/)/.test(f.rel) && /export\s+const\s+\w+\s*=\s*(mutation|action)\s*\(/.test(f.content));
@@ -173,7 +156,7 @@ export function runDataStoreChecks(ctx: ProjectContext): { results: CheckResult[
   const results = [
     ...add('Firebase', firebaseChecks(ctx), ctx.hasDependency('firebase', 'firebase-admin') || ctx.find(/\.rules$|database\.rules\.json$/).length > 0),
     ...add('MongoDB', mongoChecks(ctx), ctx.hasDependency('mongoose', 'mongodb')),
-    ...add('Prisma', prismaChecks(ctx), ctx.hasDependency('@prisma/client', 'prisma') || ctx.find(/\.prisma$/).length > 0),
+    ...add('Postgres/ORM', runPostgresChecks(ctx), detectStack(ctx).orms.length > 0),
     ...add('Convex', convexChecks(ctx), ctx.hasDependency('convex')),
     ...add('PocketBase/Appwrite', pocketbaseAppwriteChecks(ctx), ctx.hasDependency('appwrite', 'node-appwrite', 'pocketbase') || ctx.find(/pb_migrations\//).length > 0),
     ...genericChecks(ctx),

@@ -1,6 +1,8 @@
 import type { ProjectContext } from '../context.js';
 import { type CheckResult, pass, fail, warn, info } from '../types.js';
 import { runDataStoreChecks } from './datastores.js';
+import { drizzleTables, prismaTables } from './orm-schema.js';
+import { detectStack, ownerPredicate, rlsFix } from '../stack.js';
 
 const CREATE_TABLE = /create\s+table\s+(if\s+not\s+exists\s+)?((?:"?\w+"?\.)?"?(\w+)"?)/gi;
 
@@ -60,12 +62,14 @@ function at(locs: Loc[]): { file?: string; line?: number; also?: Loc[] } {
 function runSqlChecks(ctx: ProjectContext): CheckResult[] {
   const results: CheckResult[] = [];
   const sqlFiles = ctx.sql;
-  // RLS only matters when clients can reach the database directly (Supabase / PostgREST).
-  // Apps that only connect from the server (Drizzle, Prisma, pg) are protected by their API layer.
-  const usesSupabase = ctx.hasDependency('@supabase/supabase-js', '@supabase/ssr', '@supabase/auth-helpers-nextjs')
-    || ctx.allPaths.some((p) => /(^|\/)supabase\/.+\.(sql|toml)$/.test(p));
+  const stack = detectStack(ctx);
+  // RLS only matters when browsers can reach the database directly (Supabase, Neon Data API,
+  // PostgREST, Hasura). Apps that only connect from the server are protected by their API layer.
+  const usesSupabase = stack.provider === 'supabase' || ctx.allPaths.some((p) => /(^|\/)supabase\/.+\.(sql|toml)$/.test(p));
+  const exposure = usesSupabase ? ['Supabase client', ...stack.browserAccess.filter((b) => b !== 'Supabase client')] : stack.browserAccess;
+  const ormTables = [...drizzleTables(ctx), ...prismaTables(ctx)];
 
-  if (sqlFiles.length === 0) {
+  if (sqlFiles.length === 0 && ormTables.length === 0) {
     return usesSupabase
       ? [warn('db/no-migrations', 'medium', 'Supabase used but no SQL migrations in the repo, so RLS cannot be verified', {
         fix: 'Run `supabase db pull` so your schema and policies are version-controlled and reviewable.',
@@ -76,38 +80,51 @@ function runSqlChecks(ctx: ProjectContext): CheckResult[] {
   const files = sqlFiles.map((f) => ({ rel: f.rel, masked: maskSqlComments(f.content) }));
   const sql = files.map((f) => f.masked).join('\n');
 
-  // --- RLS per table (enabling may happen in a later migration, so check across all files) ---
-  const tables = findAll(files, CREATE_TABLE, (m) => m[3].toLowerCase())
-    .filter((t) => {
-      const full = t.match[2].replace(/"/g, '');
-      return !full.includes('.') || full.split('.')[0] === 'public';
-    });
+  // --- Table inventory: SQL migrations + Drizzle tables + Prisma models, merged by name ---
+  interface Table { name: string; locs: Loc[]; rls: boolean; policy: boolean }
+  const tables = new Map<string, Table>();
+  const add = (name: string, locs: Loc[], rls: boolean, policy: boolean) => {
+    const key = name.toLowerCase();
+    const t = tables.get(key) ?? { name, locs: [], rls: false, policy: false };
+    t.locs.push(...locs);
+    t.rls ||= rls;
+    t.policy ||= policy;
+    tables.set(key, t);
+  };
+  for (const t of findAll(files, CREATE_TABLE, (m) => m[3].toLowerCase())) {
+    const full = t.match[2].replace(/"/g, '');
+    if (full.includes('.') && full.split('.')[0] !== 'public') continue;
+    add(full, t.locs, false, false);
+  }
+  for (const t of ormTables) add(t.name, [{ file: t.file, line: t.line }], t.rls, t.policy);
 
-  const missingRls: Found[] = [];
-  const missingPolicy: Found[] = [];
-  for (const t of tables) {
-    const name = `(?:"?public"?\\.)?"?${t.match[3]}"?`;
-    const rlsOn = new RegExp(`alter\\s+table\\s+(if\\s+exists\\s+)?(only\\s+)?${name}\\s+enable\\s+row\\s+level\\s+security`, 'i').test(sql);
+  // RLS may be enabled in a later SQL migration (including drizzle-kit / prisma generated ones).
+  const missingRls: Table[] = [];
+  const missingPolicy: Table[] = [];
+  for (const t of tables.values()) {
+    const name = `(?:"?public"?\\.)?"?${t.name.split('.').pop()}"?`;
+    const rlsOn = t.rls || new RegExp(`alter\\s+table\\s+(if\\s+exists\\s+)?(only\\s+)?${name}\\s+enable\\s+row\\s+level\\s+security`, 'i').test(sql);
+    const hasPolicy = t.policy || new RegExp(`create\\s+policy[\\s\\S]*?\\bon\\s+${name}\\b`, 'i').test(sql);
     if (!rlsOn) missingRls.push(t);
-    else if (!new RegExp(`create\\s+policy[\\s\\S]*?\\bon\\s+${name}\\b`, 'i').test(sql)) missingPolicy.push(t);
+    else if (!hasPolicy) missingPolicy.push(t);
   }
-  const tableName = (t: Found) => t.match[2].replace(/"/g, '');
 
-  if (tables.length > 0 && missingRls.length === 0) {
-    results.push(pass('db/rls-enabled', `RLS enabled on all ${tables.length} public tables`));
+  if (tables.size > 0 && missingRls.length === 0) {
+    results.push(pass('db/rls-enabled', `RLS enabled on all ${tables.size} public tables`));
   }
-  if (!usesSupabase && missingRls.length > 0) {
+  if (exposure.length === 0 && missingRls.length > 0) {
     results.push(info('db/rls-enabled', `${missingRls.length} table(s) without RLS: fine while only your server connects to the database; enable it before exposing the DB to clients`));
     missingRls.length = 0;
   }
+  const how = exposure.length === 1 && exposure[0] === 'Supabase client' ? 'anyone with the anon key' : `anyone through the ${exposure.join(' / ')}`;
   for (const t of missingRls) {
-    results.push(fail('db/rls-enabled', 'critical', `Table ${tableName(t)} has no RLS: readable and writable by anyone with the anon key`, {
+    results.push(fail('db/rls-enabled', 'critical', `Table ${t.name} has no RLS: readable and writable by ${how}`, {
       ...at(t.locs),
-      fix: `alter table ${tableName(t)} enable row level security;  -- then add policies`,
+      fix: rlsFix(stack, t.name),
     }));
   }
   for (const t of missingPolicy) {
-    results.push(info('db/rls-no-policy', `Table ${tableName(t)} has RLS but no policies: all access denied (fine if only the service role uses it)`, at(t.locs)));
+    results.push(info('db/rls-no-policy', `Table ${t.name} has RLS but no policies: all access denied (fine if only the service role uses it)`, at(t.locs)));
   }
 
   // --- Policies ---
@@ -119,7 +136,7 @@ function runSqlChecks(ctx: ProjectContext): CheckResult[] {
     if (/for\s+(all|update|delete)\b/i.test(p) && usingTrue) {
       results.push(fail('db/permissive-policy', 'critical', `Policy ${name} allows any user to modify or delete every row (using (true))`, {
         ...at(locs),
-        fix: 'Scope the policy to the owner, e.g. `using ((select auth.uid()) = user_id)`.',
+        fix: `Scope the policy to the owner, e.g. \`using (${ownerPredicate(stack)})\`.`,
       }));
     }
     // Without WITH CHECK, Postgres re-applies USING to the new row, which is safe. Only an
@@ -127,13 +144,13 @@ function runSqlChecks(ctx: ProjectContext): CheckResult[] {
     if (/for\s+(all|update)\b/i.test(p) && checkTrue && !usingTrue) {
       results.push(fail('db/update-with-check', 'high', `Policy ${name} has WITH CHECK (true), looser than its USING clause: users can rewrite rows they own, e.g. hand them to another user_id`, {
         ...at(locs),
-        fix: 'Remove the WITH CHECK clause (Postgres then reuses USING), or make it match USING, e.g. `with check ((select auth.uid()) = user_id)`.',
+        fix: `Remove the WITH CHECK clause (Postgres then reuses USING), or make it match USING, e.g. \`with check (${ownerPredicate(stack)})\`.`,
       }));
     }
     if (/for\s+insert\b/i.test(p) && /to\s+[^;]*\banon\b/i.test(p) && checkTrue) {
       results.push(warn('db/anon-insert', 'medium', `Policy ${name} lets anonymous users insert arbitrary rows (including any user_id)`, {
         ...at(locs),
-        fix: 'Constrain it, e.g. `with check (user_id is null or user_id = (select auth.uid()))`, and add rate limiting.',
+        fix: `Constrain it, e.g. \`with check (user_id is null or ${ownerPredicate(stack)})\`, and add rate limiting.`,
       }));
     }
   }

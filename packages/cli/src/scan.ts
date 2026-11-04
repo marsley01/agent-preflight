@@ -4,6 +4,7 @@ import ora from 'ora';
 import { ProjectContext } from './context.js';
 import { CATEGORIES } from './checks/index.js';
 import { renderReport, renderMarkdown, renderSarif } from './reporter.js';
+import { describeStack, detectStack } from './stack.js';
 import { type CategoryResult, type CheckResult, type Severity, SEVERITY_ORDER } from './types.js';
 
 export * from './types.js';
@@ -47,6 +48,8 @@ export interface ScanReport {
   durationMs: number;
   summary: ScanSummary;
   categories: CategoryResult[];
+  /** Detected stack, e.g. "Next.js · Drizzle · Neon Postgres" (terminal output only, not in --format json) */
+  stack?: string;
 }
 
 const PENALTY: Record<Severity, number> = { critical: 25, high: 10, medium: 4, low: 1, info: 0 };
@@ -127,6 +130,7 @@ export async function scan(
     durationMs: Date.now() - started,
     summary: summarize(categories),
     categories,
+    stack: describeStack(detectStack(ctx)),
   };
 }
 
@@ -184,7 +188,7 @@ export async function runScan(dir: string, options: ScanOptions) {
 
   let out: string;
   if (format === 'legacy-json') out = JSON.stringify(toLegacyJson(report), null, 2);
-  else if (format === 'json') out = JSON.stringify(report, null, 2);
+  else if (format === 'json') out = JSON.stringify({ ...report, stack: undefined }, null, 2);
   else if (format === 'sarif') out = JSON.stringify(renderSarif(report), null, 2);
   else if (format === 'markdown') out = renderMarkdown(report);
   else out = renderReport(report, { verbose: options.verbose });

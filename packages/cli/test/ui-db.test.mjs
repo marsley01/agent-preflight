@@ -156,11 +156,12 @@ test('db: Prisma hardcoded URL and per-request clients', () => {
   const r = runDatabaseChecks(ctx({
     'package.json': pkg({ '@prisma/client': '^5' }),
     'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = "postgresql://u:p@db.example.com/app"\n}',
-    'app/api/posts/route.ts': "import { PrismaClient } from '@prisma/client';\nexport async function GET() { const prisma = new PrismaClient(); }",
+    'app/api/posts/route.ts': "import { PrismaClient } from '@prisma/client';\nexport async function GET() {\n  const prisma = new PrismaClient();\n}",
     'lib/prisma.ts': 'const g = globalThis; export const prisma = g.prisma ?? new PrismaClient();',
   }));
-  assert.ok(ids(r).includes('db/prisma-hardcoded-url'));
-  assert.deepEqual(r.filter((x) => x.id === 'db/client-per-request').map((x) => x.file), ['app/api/posts/route.ts']);
+  // Renamed in 0.2.1: db/prisma-hardcoded-url -> db/hardcoded-url, db/client-per-request -> db/pool-per-request
+  assert.ok(ids(r).includes('db/hardcoded-url'));
+  assert.deepEqual(r.filter((x) => x.id === 'db/pool-per-request').map((x) => x.file), ['app/api/posts/route.ts']);
   const ok = runDatabaseChecks(ctx({ 'package.json': pkg({ '@prisma/client': '^5' }), 'prisma/schema.prisma': 'url = env("DATABASE_URL")' }));
   assert.deepEqual(ids(ok), []);
 });

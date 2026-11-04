@@ -1,5 +1,6 @@
 import type { ProjectContext, SourceFile } from '../context.js';
 import { type CheckResult, type Severity, pass, fail, warn } from '../types.js';
+import { ORM_CONFIG } from './postgres.js';
 
 /**
  * High-signal patterns for real credential *values*. Matching on env var names
@@ -18,7 +19,7 @@ const SECRET_PATTERNS: { id: string; label: string; re: RegExp; severity: Severi
   { id: 'sendgrid-key', label: 'SendGrid API key', re: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/, severity: 'high' },
   { id: 'resend-key', label: 'Resend API key', re: /\bre_[A-Za-z0-9]{8}_[A-Za-z0-9]{20,}\b/, severity: 'high' },
   { id: 'private-key', label: 'Private key', re: /-----BEGIN (RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY( BLOCK)?-----/, severity: 'critical' },
-  { id: 'db-url-password', label: 'Database URL with password', re: /\b(postgres(ql)?|mysql|mongodb(\+srv)?|redis):\/\/[^:\s/'"`]+:[^@\s'"`]{6,}@(?!localhost|127\.0\.0\.1|db\b|postgres\b)/, severity: 'high' },
+  { id: 'db-url-password', label: 'Database URL with password', re: /\b(postgres(ql)?|mysql|mongodb(\+srv)?|redis):\/\/[^:\s/'"`]+:[^@\s'"`]{6,}@(?!(?:localhost|127\.0\.0\.1|db|postgres)(?:[:/'"`\s]|$))/, severity: 'high' },
 ];
 
 /** JWTs whose payload declares `"role":"service_role"` (Supabase admin key). */
@@ -69,6 +70,8 @@ function scanSecrets(ctx: ProjectContext): CheckResult[] {
   for (const { id, label, re, severity } of SECRET_PATTERNS) {
     for (const m of ctx.grep(candidates, re, { literals: true })) {
       if (PLACEHOLDER.test(m.match[0])) continue;
+      // Connection strings in ORM config are reported once, by db/hardcoded-url.
+      if (id === 'db-url-password' && ORM_CONFIG.test(m.file)) continue;
       results.push(fail(`secrets/${id}`, severity, `${label} hardcoded in source`, {
         file: m.file,
         line: m.line,

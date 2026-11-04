@@ -49,6 +49,7 @@ Line-level patterns in first-party source. Tests, fixtures, `*.d.ts`, minified f
 |---|---|---|---|---|
 | `injection/sql-template` | fail | critical | `.query()`, `.execute()`, `.raw()`, `whereRaw()`, `$queryRawUnsafe()` … called with a template literal containing `${…}` | Parameterized queries (`$1`) or a tagged template (`sql\`…\``, `prisma.$queryRaw\`…\``) |
 | `injection/sql-concat` | fail | critical | `SELECT`/`INSERT`/`UPDATE`/`DELETE` strings concatenated with `+` into a query call | Parameterized queries |
+| `injection/sql-raw-variable` | warn | high | Drizzle / Kysely `sql.raw()` called with a variable (interpolated templates are already `injection/sql-template`) | Pass values through ``sql`...${value}` `` and identifiers through `sql.identifier()` or an allowlist |
 | `injection/prisma-unsafe` | warn | high | Any `$queryRawUnsafe` / `$executeRawUnsafe` call | Use the tagged-template `$queryRaw` |
 | `injection/command` | fail | critical | `exec()` / `execSync()` with interpolation or concatenation, in files that import `child_process`, `execa` or `shelljs` | `execFile`/`spawn` with an argument array |
 | `injection/shell-true` | warn | medium | `shell: true` passed to a child process | Drop it and pass an argument array |
@@ -107,13 +108,23 @@ Route handlers include Next.js `route.ts` and `pages/api`, SvelteKit `+server.ts
 
 Covers every data store the project uses. Each group only runs when that store is detected (a dependency, a config file, or migrations), and the category is skipped if none are found.
 
+**Stack detection.** The terminal report starts with a line like `Detected: Next.js · Drizzle · Neon Postgres`, worked out from dependencies, config files (`drizzle.config.*`, `schema.prisma`, `supabase/config.toml`, `railway.json`) and env var names / hosts in `.env` templates. Fix hints follow the platform: Supabase gets `auth.uid()`, Neon gets `auth.user_id()` and Drizzle's `crudPolicy`, plain Postgres gets a session-setting predicate.
+
+| Detected | From |
+|---|---|
+| Providers | Supabase, Neon (incl. the Neon Data API), Vercel Postgres, Railway, AWS RDS, any other Postgres; plus Firebase, MongoDB, Convex, PocketBase, Appwrite |
+| ORMs / drivers | Drizzle, Prisma, Kysely, Knex, TypeORM, Sequelize, postgres.js, node-postgres (`pg`) |
+| Browser access to the database | Supabase client, Neon Data API (`@neon/neon-js`, `@neon/postgrest-js`, `*.apirest.*.neon.tech`), PostgREST, Hasura |
+
+**Tables** come from SQL migrations, Drizzle `pgTable()` definitions and Prisma models, merged by name. RLS counts as enabled from SQL (`alter table … enable row level security`) or Drizzle (`pgTable.withRLS`, any `pgPolicy` / `crudPolicy` on the table, `pgPolicy(...).link(table)`, or the older `.enableRLS()`).
+
 ### SQL and Supabase
 
-Reads every `.sql` file, with SQL comments ignored. Every finding points at `file:line`; when the same statement appears in several files (for example `schema.sql` and a migration), it is reported once and lists every location. Severity depends on whether clients can reach the database directly. A project counts as **Supabase** when it depends on `@supabase/supabase-js` / `@supabase/ssr` or has `.sql`/`.toml` files under `supabase/`. Apps that only connect from the server (Drizzle, Prisma, `pg`) are protected by their own API, so missing RLS there is informational.
+Reads every `.sql` file, with SQL comments ignored. Every finding points at `file:line`; when the same statement appears in several files (for example `schema.sql` and a migration), it is reported once and lists every location. Severity depends on whether browsers can reach the database directly (Supabase, Neon Data API, PostgREST, Hasura): then a table without RLS is critical. Apps that only connect from the server are protected by their own API, so missing RLS there is informational.
 
 | Rule ID | Status | Severity | Detects |
 |---|---|---|---|
-| `db/rls-enabled` | fail | critical | A `public` table with no `alter table … enable row level security` (Supabase projects; informational otherwise) |
+| `db/rls-enabled` | fail | critical | A `public` table (from SQL, Drizzle or Prisma) with no RLS, when the database is reachable from the browser. Informational for server-only apps |
 | `db/permissive-policy` | fail | critical | An `update`, `delete` or `all` policy with `using (true)`: anyone can change every row |
 | `db/update-with-check` | fail | high | An UPDATE (or ALL) policy whose `WITH CHECK` is explicitly looser than its `USING`, e.g. `with check (true)`: owners can rewrite their rows into anything, including another `user_id`. A policy with no `WITH CHECK` is fine, because Postgres reuses the `USING` expression |
 | `db/view-security-invoker` | fail | high | A view without `security_invoker = true`. Views run as their owner and bypass RLS |
@@ -135,14 +146,21 @@ Detected from the `firebase` / `firebase-admin` dependency, `firebase.json`, or 
 | `db/firebase-auth-only` | warn | medium | A `match /{document=**}` wildcard that only checks `request.auth != null`, so any signed-in user can read and write every document |
 | `db/firebase-no-rules` | warn | medium | Firebase is used but no rules files are in the repo, so they can't be reviewed |
 
-### MongoDB, Prisma, Convex, PocketBase, Appwrite
+### Postgres and ORMs (Neon, Railway, RDS, Supabase, self-hosted)
+
+| Rule ID | Status | Severity | Detects |
+|---|---|---|---|
+| `db/destructive-script` | fail | high | `prisma db push --accept-data-loss` / `--force-reset`, `prisma migrate reset`, `drizzle-kit push --force`, `drizzle-kit drop`, `knex migrate:rollback --all`, `sequelize db:drop` or `typeorm schema:drop` in a `build`, `install`, `postinstall`, `start`, `deploy` or `release` script (following one level of `npm run x`), in deploy configs (`vercel.json`, `netlify.toml`, `Dockerfile`, `Procfile`, `render.yaml`, `fly.toml`, `railway.*`), or in CI workflows that deploy. A test job resetting a throwaway database is not flagged |
+| `db/hardcoded-url` | fail | high | A literal connection string to a non-local database in ORM config: `schema.prisma`, `drizzle.config.*`, `knexfile.*`, `kysely.config.*`, `ormconfig.*`, `data-source.*`. Says so when the password is included (then rotate it). Replaces `db/prisma-hardcoded-url` |
+| `db/pool-per-request` | warn | medium | A connection pool created inside a request handler: `new PrismaClient()`, `new Pool()` / `new Client()` from `pg`, `postgres()`, `drizzle(url)` with node-postgres / postgres-js, `new Kysely()`, `knex({...})`. Skipped when the file caches on `globalThis`, and for Neon's serverless driver, whose docs recommend a per-request client on edge runtimes. Replaces `db/client-per-request` |
+| `db/owner-role` | warn | low | A connection string in an `.env` template or ORM config that connects as an owner or superuser role (`postgres`, `postgres.<ref>`, `neondb_owner` and other `*_owner`, `root`, `admin`) to a non-local host. Suggests a least-privilege app role for the detected platform |
+
+### MongoDB, Convex, PocketBase, Appwrite
 
 | Rule ID | Status | Severity | Detects |
 |---|---|---|---|
 | `db/nosql-injection` | fail | high | MongoDB/Mongoose queries (`find`, `findOne`, `updateOne`, `deleteMany`, ...) called directly with `req.body` / `req.query` / `req.params`, or with `{ ...req.body }`. Operator injection (`{"$ne": null}`) bypasses filters and logins |
 | `db/mongo-where` | warn | high | `$where`, which runs JavaScript inside the database |
-| `db/prisma-hardcoded-url` | fail | high | `url = "..."` in `schema.prisma` instead of `env("DATABASE_URL")` |
-| `db/client-per-request` | warn | medium | `new PrismaClient()` inside a route handler with no `globalThis` singleton: every serverless instance opens a pool and the database runs out of connections |
 | `db/convex-public-mutation` | warn | medium | A Convex `mutation` or `action` that never calls `ctx.auth.getUserIdentity()`, so anyone can call it from the browser |
 | `db/pocketbase-open-rule` | warn | high (create/update/delete), medium (list/view) | A PocketBase collection rule set to `""`, which means anyone, including logged-out users (`null` means admins only) |
 | `db/appwrite-public-write` | warn | high | `Permission.write/update/delete/create(Role.any())` |

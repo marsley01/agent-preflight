@@ -50,6 +50,15 @@ const DETECTORS: Detector[] = [
     fix: 'Prefer prisma.$queryRaw`...` (tagged template) which parameterizes values automatically.',
   },
   {
+    // Drizzle / Kysely sql.raw() with a variable. (`sql.raw(\`...${x}\`)` is already injection/sql-template.)
+    id: 'injection/sql-raw-variable',
+    re: /\bsql\.raw\s*\(\s*(?!['"`])[A-Za-z_$][\w$.]*\s*[),]/,
+    fileGuard: /drizzle-orm|kysely/,
+    status: 'warn', severity: 'high',
+    message: 'sql.raw() with a variable: if it can hold user input, this is SQL injection',
+    fix: 'Pass values through the sql`...${value}` template (parameterized), and identifiers through sql.identifier() or an allowlist.',
+  },
+  {
     id: 'injection/command',
     re: /\b(exec|execSync)\s*\(\s*(`[^`]*\$\{|[^,)]*\+\s*\w)/,
     fileGuard: /child_process|from\s+['"]node:child_process['"]|shelljs|execa/,

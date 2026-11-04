@@ -60,7 +60,7 @@ Exit codes: `0` ok, `1` findings exceeded `--fail-on` / `--strict`, `2` the scan
 | Dependencies | `dependencies` | Known CVEs in `package-lock.json` and pinned `requirements.txt` (OSV.dev, with fixed versions), missing lockfile, `*` / `latest` versions, git/URL dependencies, install scripts that download code |
 | Authentication | `auth` | Auth middleware (Next.js `middleware`/`proxy`, SvelteKit hooks), mutating routes that touch data without an auth check, auth secret documented |
 | API & Validation | `api` | Request bodies used without a schema (Zod, Valibot, Yup, Joi, ...), rate limiting, raw errors returned to clients |
-| Database | `database` | **Supabase/Postgres:** RLS per table, `using (true)` write policies, UPDATE without `WITH CHECK`, anonymous inserts, views without `security_invoker`, `SECURITY DEFINER` without `search_path`, Storage policies. **Firebase:** open and test-mode rules, auth-only wildcards. **MongoDB:** operator injection, `$where`. **Prisma:** hardcoded URLs, a client per request. **Convex, PocketBase, Appwrite:** unauthenticated mutations and public write rules. **Any database:** server drivers imported in browser code, TLS turned off |
+| Database | `database` | **Any Postgres** (Supabase, Neon, Railway, RDS, self-hosted) with **Drizzle, Prisma, Kysely, Knex, postgres.js, pg**: tables from SQL, Drizzle `pgTable()` and Prisma models, RLS required when browsers can reach the DB (Supabase, Neon Data API, PostgREST, Hasura), `using (true)` write policies, WITH CHECK looser than USING, views without `security_invoker`, `SECURITY DEFINER` without `search_path`, destructive scripts in build/deploy, hardcoded connection strings, owner-role connections, pools per request. **Firebase:** open and test-mode rules. **MongoDB:** operator injection, `$where`. **Convex, PocketBase, Appwrite:** unauthenticated mutations and public write rules. **Any database:** server drivers in browser code, TLS turned off |
 | Payments | `payments` | Webhook signature verification (Stripe, M-Pesa Daraja, Paystack, Flutterwave, Lemon Squeezy, ...), idempotency, prices taken from the request body |
 | Web Security | `web` | CSP, clickjacking, nosniff, HSTS, Referrer-Policy (or helmet), production source maps, session cookies without `httpOnly` |
 | AI / LLM | `ai` | LLM SDK used from the browser, user input in system prompts, missing output token limits, model output passed to `eval`/`exec` |
@@ -68,36 +68,36 @@ Exit codes: `0` ok, `1` findings exceeded `--fail-on` / `--strict`, `2` the scan
 | Real-Time | `realtime` | Subscription cleanup in React effects, unauthenticated WebSocket servers, plaintext `ws://` |
 | UI & Content | `ui` | Starter template text and lorem ipsum left in, dead `href="#"` links, hardcoded `localhost` URLs, debug leftovers, images without `alt`, invisible keyboard focus, unreadable text/background contrast, fixed widths that break phones, missing viewport / title / description / favicon / link preview, too many fonts or one-off colors, z-index hacks |
 
-Categories that don't apply to your stack (for example, Payments with no payment provider) are reported as skipped and don't affect the score.
+The report starts with the detected stack (`Detected: Next.js · Drizzle · Neon Postgres`). Categories that don't apply (for example Payments with no payment provider) are collapsed into one "Skipped" line and don't affect the score. Passing checks are summarised per category, and identical findings in several files are shown once with every location; `-v` shows everything.
 
 Full rule list with severities and fixes: **[docs/rules.md](https://github.com/marsley01/agent-preflight/blob/main/docs/rules.md)**.
 
 ## Example output
 
 ```
-🛫 Agent Preflight v0.2.0 — Pre-Deploy Scan
-Scanning: /Users/you/my-app
+🛫 Agent Preflight v0.2.1 — Pre-Deploy Scan
+Scanning: /Users/you/shop
+Detected: Next.js · Drizzle · Neon Postgres · browser access via Neon Data API
 
   Secrets
-  ❌  HIGH     NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY uses a public prefix — it will be shipped to every browser (.env.example:2)
-        ↳ Drop the public prefix and only read this variable in server code (API routes, server actions, edge functions).
-  ✅  .env is gitignored
+  ✅  3 checks passed
 
   Code Vulnerabilities
-  ❌  CRITICAL SQL built with string interpolation — SQL injection (lib/db.ts:2)
-        ↳ Use parameterized queries ($1 placeholders) or a tagged template (sql`...`, Prisma.$queryRaw``) that escapes values.
+  ❌  CRITICAL SQL built with string interpolation — SQL injection (app/api/posts/route.ts:9)
+        ↳ Use parameterized queries ($1 placeholders) or a tagged template (sql`...`) that escapes values.
 
-  Database & RLS
-  ❌  CRITICAL Table profiles has no RLS — readable and writable by anyone with the anon key (supabase/migrations/001_init.sql)
-        ↳ alter table profiles enable row level security;  -- then add policies
-
-  Payments
-  ❌  CRITICAL Payment webhook does not verify signatures — anyone can POST a fake "payment succeeded" event (app/api/stripe/webhook/route.ts)
-        ↳ Use stripe.webhooks.constructEvent(rawBody, sig, secret) (or your provider's verify helper) on the raw request body.
+  Database
+  ❌  CRITICAL Table orders has no RLS: readable and writable by anyone through the Neon Data API (src/db/schema.ts:8)
+        ↳ Add a policy in the Drizzle schema (it enables RLS): pgTable('orders', {...}, (t) => [crudPolicy({ role: authenticatedRole, read: authUid(t.userId), modify: authUid(t.userId) })]) ...
+  ❌  HIGH     "build" script runs `drizzle-kit push --force`: every build can drop data (package.json:6)
+  ⚠️   MEDIUM   new Pool() inside a request handler: every request opens new connections until the database runs out (app/api/posts/route.ts:6)
+  ⚠️   LOW      App connects as the database owner role "neondb_owner": ... (drizzle.config.ts:7, .env.example:1)
   …
 
-Score: 0/100 — 2/11 checks passed · 4 critical, 3 high, 1 medium, 1 low
-Fix 7 critical/high issues before deploying.
+  Skipped 4 categories not used by this project (Payments, AI / LLM, GraphQL, Real-Time)
+
+Score: 17/100 — 5/25 checks passed · 3 critical, 2 high, 4 medium, 11 low
+Fix 5 critical/high issues before deploying.
 ```
 
 The score starts at 100 and loses points once per distinct rule at its worst severity (critical −25, high −10, medium −4, low −1; warnings count half).

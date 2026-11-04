@@ -187,3 +187,14 @@ test('Supabase local demo service_role key is a medium warning; a real one stays
   const r = real.find((x) => x.id === 'secrets/supabase-service-role-jwt');
   assert.deepEqual([r.status, r.severity], ['fail', 'critical']);
 });
+
+test('localhost in a CLI run from a package.json script is tooling, not app code (nextjs/saas-starter)', async () => {
+  const { runUiChecks } = await import('../dist/checks/ui.js');
+  const r = runUiChecks(ctxOf({
+    'package.json': JSON.stringify({ dependencies: { next: '15' }, scripts: { 'db:setup': 'npx tsx lib/db/setup.ts' } }),
+    'lib/db/setup.ts': "const BASE_URL = 'http://localhost:3000';",
+    'lib/api.ts': "export const api = 'http://localhost:4000/v1';",
+    'app/page.tsx': '<main />',
+  }));
+  assert.deepEqual(r.filter((x) => x.id === 'content/localhost-url').map((x) => x.file), ['lib/api.ts']);
+});

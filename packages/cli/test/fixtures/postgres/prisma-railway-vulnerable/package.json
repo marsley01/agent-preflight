@@ -1,0 +1,11 @@
+{
+  "name": "crm",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "postinstall": "prisma generate && npm run db:sync",
+    "db:sync": "prisma db push --accept-data-loss"
+  },
+  "dependencies": { "next": "15.0.0", "react": "19.0.0", "@prisma/client": "^6.0.0", "kysely": "^0.27.0" },
+  "devDependencies": { "prisma": "^6.0.0" }
+}

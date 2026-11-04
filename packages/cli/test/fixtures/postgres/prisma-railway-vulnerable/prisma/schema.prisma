@@ -1,0 +1,14 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:Rw4yP4ssw0rd@roundhouse.proxy.rlwy.net:41234/railway"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Customer {
+  id    String @id
+  email String @unique
+  @@map("customers")
+}
