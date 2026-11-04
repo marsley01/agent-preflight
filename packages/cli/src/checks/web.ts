@@ -78,8 +78,13 @@ export function runWebChecks(ctx: ProjectContext): CheckResult[] {
   } else {
     const insecure = cookieSetters.filter((m) => {
       if (/^(export\s+)?(async\s+)?function\b|^(export\s+)?const\s+\w+\s*=\s*(async\s*)?\(/.test(m.text)) return false;
+      // Options passed through as a variable (`cookies.set(name, value, options)`, as @supabase/ssr does)
+      // can't be judged statically; only inline option objects, or no options at all, are checked.
+      const call = m.text.slice(m.text.indexOf('('));
+      if (/^\(\s*[^,()]+,\s*[^,()]+,\s*(\.\.\.)?[A-Za-z_$][\w$.]*\s*\)/.test(call)) return false;
       const f = ctx.files.get(m.file)!;
       const window = f.lines.slice(m.line - 1, m.line + 8).join('\n');
+      if (/\{\s*\.\.\.[A-Za-z_$]/.test(window.slice(window.indexOf('(')))) return false;
       return /session|token|auth|jwt|sid/i.test(window) && !/httpOnly\s*:\s*true|HttpOnly/i.test(window);
     });
     for (const m of insecure.slice(0, 5)) {

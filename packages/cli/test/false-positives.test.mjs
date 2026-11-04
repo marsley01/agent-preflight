@@ -134,3 +134,56 @@ test('(d) every location shows up in the pretty, markdown and SARIF output', asy
   const rls = renderSarif(report).runs[0].results.find((r) => r.ruleId === 'db/rls-enabled');
   assert.equal(rls.relatedLocations[0].physicalLocation.artifactLocation.uri, 'supabase/migrations/20230530034630_init.sql');
 });
+
+/* ---------------- Real-world accuracy check (5 starters) ---------------- */
+
+const { ProjectContext } = await import('../dist/context.js');
+const { runSecurityChecks } = await import('../dist/checks/security.js');
+const { runWebChecks } = await import('../dist/checks/web.js');
+const { runPaymentChecks } = await import('../dist/checks/payments.js');
+const ctxOf = (files) => ProjectContext.fromFiles(files);
+const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const jwt = (payload) => `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url(payload)}.${'s'.repeat(43)}`;
+
+test('cookies: options passed through from a library are not flagged; inline options without httpOnly are', () => {
+  const r = runWebChecks(ctxOf({
+    'package.json': JSON.stringify({ dependencies: { next: '15' } }),
+    // vercel/next.js examples/with-supabase, KolbySisk/next-supabase-stripe-starter
+    'lib/supabase/proxy.ts': 'for (const { name, value, options } of cookiesToSet) {\n  supabaseResponse.cookies.set(name, value, options);\n}',
+    'lib/a.ts': 'res.cookies.set("session", token, { ...cookieOptions, path: "/" });',
+    // boxyhq/saas-starter-kit: a real NextAuth session token cookie without httpOnly
+    'lib/nextAuth.ts': 'setCookie(sessionTokenCookieName, sessionToken, {\n  req,\n  res,\n  expires,\n  secure: useSecureCookie,\n});',
+    'lib/b.ts': "cookies().set('session', token);",
+  }));
+  const hits = r.filter((x) => x.id === 'cookies/missing-httponly').map((x) => x.file).sort();
+  assert.deepEqual(hits, ['lib/b.ts', 'lib/nextAuth.ts']);
+});
+
+test('public env names: analytics/map tokens are public by design; access tokens are not', () => {
+  const r = runSecurityChecks(ctxOf({
+    '.env.example': 'NEXT_PUBLIC_MIXPANEL_TOKEN=\nNEXT_PUBLIC_MAPBOX_TOKEN=\nVITE_GITHUB_TOKEN=\nNEXT_PUBLIC_API_TOKEN=\n',
+  }));
+  const names = r.filter((x) => x.id === 'secrets/public-env-secret').map((x) => x.message.split(' ')[0]).sort();
+  assert.deepEqual(names, ['NEXT_PUBLIC_API_TOKEN', 'VITE_GITHUB_TOKEN']);
+});
+
+test('payments: an amount read from a provider object in a sync script is not "client-supplied"', () => {
+  const pkg = JSON.stringify({ dependencies: { stripe: '^14' } });
+  const sync = runPaymentChecks(ctxOf({ 'package.json': pkg, 'sync-stripe.ts': 'prices.map((data) => ({ amount: data.unit_amount / 100 }))' }));
+  assert.ok(!sync.some((x) => x.id === 'payments/client-amount'));
+  const route = runPaymentChecks(ctxOf({
+    'package.json': pkg,
+    'app/api/checkout/route.ts': 'const data = await req.json();\nawait stripe.paymentIntents.create({ amount: data.amount, currency: "usd" });',
+  }));
+  assert.ok(route.some((x) => x.id === 'payments/client-amount' && x.status === 'fail'));
+});
+
+test('Supabase local demo service_role key is a medium warning; a real one stays critical', () => {
+  // mckaywrigley/chatbot-ui hardcodes the public `supabase start` demo key in a migration
+  const demo = runSecurityChecks(ctxOf({ 'supabase/migrations/setup.sql': `service_role_key TEXT := '${jwt({ iss: 'supabase-demo', role: 'service_role', exp: 1983812996 })}';` }));
+  const d = demo.find((x) => x.id === 'secrets/supabase-service-role-jwt');
+  assert.deepEqual([d.status, d.severity], ['warn', 'medium']);
+  const real = runSecurityChecks(ctxOf({ 'src/admin.ts': `const key = "${jwt({ iss: 'supabase', ref: 'abcdefghijklmnop', role: 'service_role' })}";` }));
+  const r = real.find((x) => x.id === 'secrets/supabase-service-role-jwt');
+  assert.deepEqual([r.status, r.severity], ['fail', 'critical']);
+});

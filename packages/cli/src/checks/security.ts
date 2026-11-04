@@ -25,7 +25,9 @@ const SECRET_PATTERNS: { id: string; label: string; re: RegExp; severity: Severi
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.(eyJ[A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/;
 
 /** Env var names with a public prefix — these get inlined into the browser bundle. */
-const PUBLIC_SECRET_NAME = /(?<![A-Za-z0-9])(NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|PUBLIC_|NUXT_PUBLIC_|GATSBY_)[A-Z0-9_]*(SECRET|SERVICE_ROLE|PRIVATE|PASSWORD|_TOKEN\b|ADMIN_KEY)[A-Z0-9_]*/;
+// `_TOKEN` alone is too broad: analytics/map tokens (NEXT_PUBLIC_MIXPANEL_TOKEN, NEXT_PUBLIC_MAPBOX_TOKEN)
+// are public by design. Only token kinds that grant account access count.
+const PUBLIC_SECRET_NAME = /(?<![A-Za-z0-9])(NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|PUBLIC_|NUXT_PUBLIC_|GATSBY_)[A-Z0-9_]*(SECRET|SERVICE_ROLE|PRIVATE|PASSWORD|(ACCESS|REFRESH|AUTH|API|GITHUB|GH|BOT|ADMIN|PERSONAL)_TOKEN\b|ADMIN_KEY)[A-Z0-9_]*/;
 
 const PLACEHOLDER = /x{4,}|your[_-]|example|placeholder|changeme|<[^>]+>|\.\.\.|dummy|fake|redacted|\*{3,}/i;
 
@@ -45,10 +47,10 @@ function redact(text: string, secret: string): string {
   return text.replace(secret, `${secret.slice(0, 6)}${'*'.repeat(8)}`);
 }
 
-function decodeJwtRole(segment: string): string | undefined {
+function decodeJwtPayload(segment: string): { role?: string; iss?: string } | undefined {
   try {
     const json = Buffer.from(segment.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
-    return JSON.parse(json)?.role;
+    return JSON.parse(json);
   } catch {
     return undefined;
   }
@@ -77,7 +79,19 @@ function scanSecrets(ctx: ProjectContext): CheckResult[] {
   }
 
   for (const m of ctx.grep(candidates, JWT, { literals: true })) {
-    if (decodeJwtRole(m.match[1]) !== 'service_role') continue;
+    const payload = decodeJwtPayload(m.match[1]);
+    if (payload?.role !== 'service_role') continue;
+    // `supabase start` ships a public demo key (iss "supabase-demo") that only works on a local stack.
+    // Not a leak, but the spot invites pasting the real key, so it's worth a warning.
+    if (payload.iss === 'supabase-demo') {
+      results.push(warn('secrets/supabase-service-role-jwt', 'medium', 'Supabase local demo service_role key hardcoded: harmless locally, but putting your real key here would leak it', {
+        file: m.file,
+        line: m.line,
+        snippet: redact(m.text, m.match[0]),
+        fix: 'Read the key from Supabase Vault or a server-side env var instead of hardcoding it.',
+      }));
+      continue;
+    }
     results.push(fail('secrets/supabase-service-role-jwt', 'critical', 'Supabase service_role key hardcoded — bypasses all RLS', {
       file: m.file,
       line: m.line,

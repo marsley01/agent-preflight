@@ -46,7 +46,10 @@ export function runPaymentChecks(ctx: ProjectContext): CheckResult[] {
     }
   }
 
-  for (const m of ctx.grep(ctx.code, CLIENT_AMOUNT)) {
+  // Only files that actually read a request body: `data.unit_amount` in a script syncing Stripe
+  // prices is the provider's own value, not user input.
+  const readsRequest = ctx.code.filter((f) => /req\.body|request\.json\(\)|req\.json\(\)|\.formData\(\)|c\.req\.(json|parseBody)\(/.test(f.content));
+  for (const m of ctx.grep(readsRequest, CLIENT_AMOUNT)) {
     results.push(fail('payments/client-amount', 'high', 'Charge amount taken from the request body — users can pay whatever they want', {
       file: m.file, line: m.line, snippet: m.text,
       fix: 'Look up the price server-side from your product/price ID.',
